@@ -1,0 +1,18 @@
+{
+  "name": "telegram-license-bot",
+  "version": "1.0.0",
+  "description": "Automated digital product delivery Telegram bot with UPI UTR verification",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node --watch bot.js",
+    "postinstall": "node -e \"const fs=require('fs');const p=process.env.DB_PATH|| (process.env.RAILWAY_ENVIRONMENT?'/data/bot.db':'./data/bot.db');const d=require('path').dirname(p);if(!fs.existsSync(d))fs.mkdirSync(d,{recursive:true});\""
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "telegraf": "^4.16.3"
+  }
+}

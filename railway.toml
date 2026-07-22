@@ -1,0 +1,12 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# Deploy as a Worker (not Web) in Railway dashboard:
+# Settings → Service → type: Worker
+#
+# Attach a Volume mounted at /data so SQLite survives redeploys.
