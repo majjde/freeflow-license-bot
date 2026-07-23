@@ -150,6 +150,20 @@ function updateCategoryQr(categoryId, qrPhotoFileId) {
     .run(qrPhotoFileId, categoryId);
 }
 
+function deleteCategory(categoryId) {
+  return withTransaction(() => {
+    getDb()
+      .prepare("DELETE FROM Keys WHERE category_id = ? AND status = 'available'")
+      .run(categoryId);
+
+    const result = getDb()
+      .prepare('DELETE FROM Categories WHERE id = ?')
+      .run(categoryId);
+
+    return result.changes > 0;
+  });
+}
+
 function getAvailableKeyCount(categoryId) {
   const row = getDb()
     .prepare(`
@@ -354,6 +368,7 @@ module.exports = {
   getCategoryByValidity,
   upsertCategory,
   updateCategoryQr,
+  deleteCategory,
   getAvailableKeyCount,
   bulkInsertKeys,
   reserveAvailableKey,

@@ -184,9 +184,23 @@ function registerAdminHandlers(bot) {
         [Markup.button.callback('📱 Set UPI ID', `admin_set_upi:${categoryId}`)],
         [Markup.button.callback('💬 Set Message', `admin_set_message:${categoryId}`)],
         [Markup.button.callback('🖼 Upload QR Code', `admin_set_qr:${categoryId}`)],
+        [Markup.button.callback('🗑️ Delete Category', `admin_delete_cat:${categoryId}`)],
         [Markup.button.callback('« Back', 'admin:manage_categories')],
       ]),
     });
+  });
+
+  bot.action(/^admin_delete_cat:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    const categoryId = Number(ctx.match[1]);
+    db.deleteCategory(categoryId);
+    await ctx.answerCbQuery('Category deleted');
+    clearSession(ctx.from.id);
+
+    await ctx.editMessageText(
+      '⚙️ <b>Manage Categories</b>\n\n✅ Category deleted. Select a category to configure:',
+      { parse_mode: 'HTML', ...categorySelectKeyboard('admin_manage_cat') }
+    );
   });
 
   bot.action(/^admin_manage_cat_new:(.+)$/, async (ctx) => {
@@ -304,7 +318,7 @@ function registerAdminHandlers(bot) {
       return;
     }
 
-    if (session.state === ADMIN_STATES.MANAGE_CATEGORY && session.draft) {
+    if (session.state === ADMIN_STATES.MANAGE_QR && session.draft) {
       const photos = ctx.message.photo;
       session.draft.qrPhotoFileId = photos[photos.length - 1].file_id;
       finalizeNewCategory(ctx, session);
