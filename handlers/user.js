@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const db = require('../database');
 const { STATIC_GUIDES, SUPPORT_HANDLE } = require('../config');
 const { getSession, setSession, clearSession } = require('../utils/session');
+const { isAdmin } = require('./admin');
 const {
   notifyPaymentAttempt,
   notifyKeyDelivered,
@@ -238,12 +239,9 @@ function registerUserHandlers(bot) {
       `Scan the QR code above or pay using the UPI ID.\n\n` +
       `💬 <b>Reply to this message with your 12-digit UTR/RRN number once paid.</b>`;
 
-    const buttonRows = [];
-    if (category.qr_photo_file_id) {
-      buttonRows.push([Markup.button.callback('⬇️ Download QR Code', `download_qr:${categoryId}`)]);
-    }
-    buttonRows.push([Markup.button.callback('« Cancel', 'menu:main')]);
-    const keyboard = Markup.inlineKeyboard(buttonRows);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Cancel', 'menu:main')],
+    ]);
 
     if (category.qr_photo_file_id) {
       await ctx.replyWithPhoto(category.qr_photo_file_id, {
@@ -255,26 +253,6 @@ function registerUserHandlers(bot) {
       await ctx.reply(
         caption + '\n\n⚠️ QR code not configured yet. Use the UPI ID above to pay manually.',
         { parse_mode: 'HTML', ...keyboard }
-      );
-    }
-  });
-
-  bot.action(/^download_qr:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const categoryId = Number(ctx.match[1]);
-    const category = db.getCategoryById(categoryId);
-
-    if (!category?.qr_photo_file_id) {
-      return ctx.reply('QR code is not available for this plan. Use the UPI ID to pay manually.');
-    }
-
-    try {
-      await ctx.replyWithDocument(category.qr_photo_file_id, {
-        caption: `QR Code for ${validityLabel(category.validity_period)} plan (₹${category.amount})`,
-      });
-    } catch {
-      await ctx.reply(
-        'Could not send as file. Long-press the QR image above and choose "Save to gallery" instead.'
       );
     }
   });
@@ -294,7 +272,8 @@ function registerUserHandlers(bot) {
     const utrMatch = textInput.match(/\d{12}/);
     if (!utrMatch) {
       return ctx.reply(
-        '❌ Could not find a 12-digit UTR/RRN in your message.\n\nPlease reply with your 12-digit payment reference number (e.g. 123456789012).'
+        "❌ I couldn't find a valid 12-digit UTR in your message.\n\nPlease reply with the correct 12-digit UTR/RRN number.\n\n💡 *Where to find it:* Look for a 12-digit number (often starting with 3 or 4) in your UPI app's payment confirmation screen or your bank SMS.",
+        { parse_mode: 'Markdown' }
       );
     }
 
@@ -355,6 +334,18 @@ function registerUserHandlers(bot) {
   bot.command('cancel', async (ctx) => {
     safeClearSession(ctx.from.id);
     await ctx.reply('Cancelled.', mainMenuKeyboard());
+  });
+
+  // Global fallback for unrecognized text from non-admin users not in AWAITING_UTR state
+  bot.on('text', async (ctx, next) => {
+    if (isAdmin(ctx)) return next();
+
+    const session = getSession(ctx.from.id);
+    if (session.state === USER_STATES.AWAITING_UTR) return next();
+
+    await ctx.reply(
+      "I didn't quite catch that! 🤖\n\nPlease type /start to view the main menu or begin a new purchase."
+    );
   });
 }
 

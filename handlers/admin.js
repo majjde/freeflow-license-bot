@@ -1,6 +1,7 @@
 const { Markup } = require('telegraf');
 const db = require('../database');
-const { ADMIN_CHAT_ID, VALIDITY_PERIODS } = require('../config');
+const fs = require('fs');
+const { ADMIN_CHAT_ID, VALIDITY_PERIODS, DB_PATH } = require('../config');
 const { getSession, setSession, clearSession } = require('../utils/session');
 
 const ADMIN_STATES = {
@@ -72,6 +73,29 @@ function registerAdminHandlers(bot) {
       parse_mode: 'HTML',
       ...adminPanelKeyboard(),
     });
+  });
+
+  bot.command('backup', async (ctx) => {
+    if (!isAdmin(ctx)) {
+      return ctx.reply('⛔ Unauthorized.');
+    }
+
+    try {
+      if (!fs.existsSync(DB_PATH)) {
+        return ctx.reply('❌ Database file not found.');
+      }
+
+      await ctx.replyWithDocument(
+        { source: DB_PATH, filename: 'bot.db' },
+        {
+          caption:
+            '📦 Here is your latest database backup. You can open it using DB Browser for SQLite on your PC.',
+        }
+      );
+    } catch (err) {
+      console.error('Backup command error:', err);
+      await ctx.reply(`❌ Failed to send backup: ${err.message}`);
+    }
   });
 
   bot.action('admin:panel', async (ctx) => {
