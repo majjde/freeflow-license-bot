@@ -15,7 +15,14 @@ const USER_STATES = {
 };
 
 function validityLabel(period) {
-  const map = { '1d': '1 Day', '7d': '7 Days', '14d': '14 Days', '30d': '30 Days' };
+  const map = {
+    '15m': 'Free 15 Min Demo',
+    '1d': '1 Day',
+    '3d': '3 Days',
+    '7d': '7 Days',
+    '15d': '15 Days',
+    '30d': '30 Days',
+  };
   return map[period] || period;
 }
 
@@ -188,6 +195,36 @@ function registerUserHandlers(bot) {
     }
 
     db.upsertUser(ctx.from.id, ctx.from.username);
+
+    // Free 15 Min Demo Bypass
+    if (category.validity_period === '15m') {
+      const alreadyClaimed = db.hasUserClaimedCategory(ctx.from.id, categoryId);
+      if (alreadyClaimed) {
+        return ctx.reply(
+          '❌ You have already claimed your free 15-minute demo key. Please purchase a standard plan to continue using Freeflow.',
+          buyCategoriesKeyboard()
+        );
+      }
+
+      const key = db.getAvailableKey(categoryId);
+      if (!key) {
+        return ctx.reply(
+          'Sorry, this plan is currently out of stock. Please try another plan or check back shortly.',
+          buyCategoriesKeyboard()
+        );
+      }
+
+      db.markKeySold(key.id, ctx.from.id);
+      await notifyKeyDelivered(bot, ctx.from, key.key_string, category);
+
+      return ctx.reply(
+        `🎉 <b>Here is your Free 15 Min Demo Key:</b>\n\n<code>${key.key_string}</code>\n\nEnjoy testing Freeflow!`,
+        {
+          parse_mode: 'HTML',
+          ...mainMenuKeyboard(),
+        }
+      );
+    }
 
     // Lock/reserve key for 10 minutes
     const reservedKey = db.reserveAvailableKey(categoryId, ctx.from.id);

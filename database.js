@@ -294,6 +294,13 @@ function getUserKeys(userId) {
     .all(userId);
 }
 
+function hasUserClaimedCategory(userId, categoryId) {
+  const row = getDb()
+    .prepare('SELECT 1 FROM Keys WHERE sold_to = ? AND category_id = ? LIMIT 1')
+    .get(userId, categoryId);
+  return !!row;
+}
+
 // ─── Transactions ────────────────────────────────────────────────────────────
 
 function insertTransaction(utr, amount) {
@@ -375,6 +382,7 @@ module.exports = {
   getAvailableKey,
   markKeySold,
   getUserKeys,
+  hasUserClaimedCategory,
   insertTransaction,
   getTransaction,
   claimTransaction,

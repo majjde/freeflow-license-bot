@@ -53,7 +53,14 @@ function categorySelectKeyboard(prefix) {
 }
 
 function validityLabel(period) {
-  const map = { '1d': '1 Day', '7d': '7 Days', '14d': '14 Days', '30d': '30 Days' };
+  const map = {
+    '15m': 'Free 15 Min Demo',
+    '1d': '1 Day',
+    '3d': '3 Days',
+    '7d': '7 Days',
+    '15d': '15 Days',
+    '30d': '30 Days',
+  };
   return map[period] || period;
 }
 

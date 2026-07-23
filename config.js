@@ -18,7 +18,7 @@ module.exports = {
   ADMIN_CHAT_ID,
   SUPPORT_HANDLE: process.env.SUPPORT_HANDLE || 'admin',
   DB_PATH: process.env.DB_PATH || (process.env.RAILWAY_ENVIRONMENT ? '/data/bot.db' : './data/bot.db'),
-  VALIDITY_PERIODS: ['1d', '7d', '14d', '30d'],
+  VALIDITY_PERIODS: ['15m', '1d', '3d', '7d', '15d', '30d'],
   STATIC_GUIDES: {
     install: `📦 *How to Install Freeflow*
 
