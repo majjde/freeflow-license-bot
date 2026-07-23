@@ -59,7 +59,7 @@ function validityLabel(period) {
 function parseKeysFromInput(text) {
   return text
     .split(/[\n,]+/)
-    .map((k) => k.trim())
+    .map((k) => k.replace(/[^a-zA-Z0-9-]/g, '').trim())
     .filter((k) => k.length > 0);
 }
 

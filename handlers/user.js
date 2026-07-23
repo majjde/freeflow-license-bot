@@ -2,7 +2,6 @@ const { Markup } = require('telegraf');
 const db = require('../database');
 const { STATIC_GUIDES, SUPPORT_HANDLE } = require('../config');
 const { getSession, setSession, clearSession } = require('../utils/session');
-const { isValidUtr } = require('../utils/regex');
 const {
   notifyPaymentAttempt,
   notifyKeyDelivered,
@@ -47,11 +46,19 @@ function buyCategoriesKeyboard() {
   return Markup.inlineKeyboard(buttons);
 }
 
+function safeClearSession(userId) {
+  const session = getSession(userId);
+  if (session && session.timerId) {
+    clearTimeout(session.timerId);
+  }
+  clearSession(userId);
+}
+
 function registerUserHandlers(bot) {
   bot.command('start', async (ctx) => {
     try {
       db.upsertUser(ctx.from.id, ctx.from.username);
-      clearSession(ctx.from.id);
+      safeClearSession(ctx.from.id);
 
       await ctx.reply(
         `👋 Welcome to the License Key Bot!\n\n` +
@@ -67,7 +74,7 @@ function registerUserHandlers(bot) {
 
   bot.action('menu:main', async (ctx) => {
     await ctx.answerCbQuery();
-    clearSession(ctx.from.id);
+    safeClearSession(ctx.from.id);
     try {
       await ctx.editMessageText('🏠 Main Menu\n\nChoose an option:', mainMenuKeyboard());
     } catch {
@@ -168,7 +175,7 @@ function registerUserHandlers(bot) {
     }
   });
 
-  // ─── Purchase flow ─────────────────────────────────────────────────────────
+  // ─── Purchase flow (10-Minute Vault) ────────────────────────────────────────
 
   bot.action(/^buy:(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
@@ -179,27 +186,64 @@ function registerUserHandlers(bot) {
       return ctx.reply('This plan is no longer available.');
     }
 
-    const available = db.getAvailableKeyCount(categoryId);
-    if (available === 0) {
+    db.upsertUser(ctx.from.id, ctx.from.username);
+
+    // Lock/reserve key for 10 minutes
+    const reservedKey = db.reserveAvailableKey(categoryId, ctx.from.id);
+    if (!reservedKey) {
       return ctx.reply(
-        'Sorry, this plan is currently out of stock. Please try another plan or contact support.',
+        'Sorry, this plan is currently out of stock. Please try another plan or check back shortly.',
         buyCategoriesKeyboard()
       );
     }
+
+    // Clear any previous reservation timer
+    const oldSession = getSession(ctx.from.id);
+    if (oldSession && oldSession.timerId) {
+      clearTimeout(oldSession.timerId);
+    }
+
+    // Set 10-minute auto-expiry timeout
+    const userId = ctx.from.id;
+    const timerId = setTimeout(async () => {
+      const sess = getSession(userId);
+      if (sess.state === USER_STATES.AWAITING_UTR && sess.categoryId === categoryId) {
+        clearSession(userId);
+        try {
+          await bot.telegram.sendMessage(
+            userId,
+            `⏱️ <b>Reservation Expired</b>\n\nYour 10-minute key reservation for <b>${validityLabel(category.validity_period)}</b> has expired.\n\nIf you still wish to purchase, please select a plan from the menu.`,
+            { parse_mode: 'HTML', ...mainMenuKeyboard() }
+          );
+        } catch (err) {
+          console.error('Failed to send reservation expiry message:', err.message);
+        }
+      }
+    }, 10 * 60 * 1000);
+
+    setSession(ctx.from.id, {
+      state: USER_STATES.AWAITING_UTR,
+      categoryId,
+      timerId,
+    });
+
+    await notifyPaymentAttempt(bot, ctx.from, category);
 
     const caption =
       `💳 <b>${validityLabel(category.validity_period)} License</b>\n\n` +
       `💰 Amount: <b>₹${category.amount}</b>\n` +
       `📱 UPI ID: <code>${category.upi_id}</code>\n\n` +
       (category.custom_message ? `${category.custom_message}\n\n` : '') +
-      `Scan the QR code above and pay the exact amount.\n` +
-      `After payment, tap <b>✅ I paid it</b> and enter your 12-digit UTR/RRN.`;
+      `🔒 <b>Key Reserved for 10 Minutes!</b>\n` +
+      `Scan the QR code above or pay using the UPI ID.\n\n` +
+      `💬 <b>Reply to this message with your 12-digit UTR/RRN number once paid.</b>`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('⬇️ Download QR Code', `download_qr:${categoryId}`)],
-      [Markup.button.callback('✅ I paid it', `paid:${categoryId}`)],
-      [Markup.button.callback('« Back', 'menu:buy')],
-    ]);
+    const buttonRows = [];
+    if (category.qr_photo_file_id) {
+      buttonRows.push([Markup.button.callback('⬇️ Download QR Code', `download_qr:${categoryId}`)]);
+    }
+    buttonRows.push([Markup.button.callback('« Cancel', 'menu:main')]);
+    const keyboard = Markup.inlineKeyboard(buttonRows);
 
     if (category.qr_photo_file_id) {
       await ctx.replyWithPhoto(category.qr_photo_file_id, {
@@ -235,35 +279,7 @@ function registerUserHandlers(bot) {
     }
   });
 
-  bot.action(/^paid:(\d+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const categoryId = Number(ctx.match[1]);
-    const category = db.getCategoryById(categoryId);
-
-    if (!category) {
-      return ctx.reply('This plan is no longer available.');
-    }
-
-    db.upsertUser(ctx.from.id, ctx.from.username);
-    setSession(ctx.from.id, {
-      state: USER_STATES.AWAITING_UTR,
-      categoryId,
-    });
-
-    await notifyPaymentAttempt(bot, ctx.from, category);
-
-    await ctx.reply(
-      `✅ Great! Please reply with your <b>12-digit UTR/RRN</b> number from your payment confirmation.\n\n` +
-        `Plan: ${validityLabel(category.validity_period)} (₹${category.amount})\n\n` +
-        `Type /cancel to go back.`,
-      {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]),
-      }
-    );
-  });
-
-  // ─── UTR verification ──────────────────────────────────────────────────────
+  // ─── UTR verification (Forgiving Input) ───────────────────────────────────
 
   bot.on('text', async (ctx, next) => {
     const session = getSession(ctx.from.id);
@@ -272,17 +288,21 @@ function registerUserHandlers(bot) {
       return next();
     }
 
-    const utr = ctx.message.text.trim();
+    const textInput = ctx.message.text ? ctx.message.text.trim() : '';
 
-    if (!isValidUtr(utr)) {
+    // Intelligently extract 12-digit UTR from user input
+    const utrMatch = textInput.match(/\d{12}/);
+    if (!utrMatch) {
       return ctx.reply(
-        '❌ Invalid UTR. Please enter exactly 12 digits (numbers only).\n\nExample: 123456789012'
+        '❌ Could not find a 12-digit UTR/RRN in your message.\n\nPlease reply with your 12-digit payment reference number (e.g. 123456789012).'
       );
     }
 
+    const utr = utrMatch[0];
+
     const category = db.getCategoryById(session.categoryId);
     if (!category) {
-      clearSession(ctx.from.id);
+      safeClearSession(ctx.from.id);
       return ctx.reply('This plan is no longer available. Please start again.', mainMenuKeyboard());
     }
 
@@ -295,7 +315,7 @@ function registerUserHandlers(bot) {
       expectedAmount: category.amount,
     });
 
-    clearSession(ctx.from.id);
+    safeClearSession(ctx.from.id);
 
     if (result.ok) {
       await notifyKeyDelivered(bot, ctx.from, result.key, category);
@@ -305,7 +325,7 @@ function registerUserHandlers(bot) {
           `Here is your license key:\n\n` +
           `<code>${result.key}</code>\n\n` +
           `Plan: ${validityLabel(category.validity_period)}\n` +
-          `Amount: ₹${result.amount}\n\n` +
+          `Amount Paid: ₹${result.amount}\n\n` +
           `Tap "How to Install" in the main menu if you need setup help.`,
         {
           parse_mode: 'HTML',
@@ -316,9 +336,9 @@ function registerUserHandlers(bot) {
     }
 
     const reasonMap = {
-      not_found: 'UTR not found in payment records',
+      not_found: 'UTR not found in payment records yet',
       already_used: 'UTR already claimed',
-      amount_mismatch: `Amount mismatch (expected ₹${category.amount}, received ₹${result.received})`,
+      amount_mismatch: `Amount received (₹${result.received}) is less than required (₹${category.amount})`,
       no_keys: 'No keys available in stock',
     };
 
@@ -326,14 +346,14 @@ function registerUserHandlers(bot) {
     await notifyUtrFailed(bot, ctx.from, utr, reason);
 
     await ctx.reply(
-      `❌ UTR not found or already used. Please check again.\n\n` +
-        `If the amount was deducted from your account, contact admin with your UTR and payment screenshot.`,
+      `❌ UTR verification issue: ${reason}.\n\n` +
+        `If you just paid, please wait a few seconds and send the UTR again. If the issue persists, contact support with your payment screenshot.`,
       contactAdminKeyboard()
     );
   });
 
   bot.command('cancel', async (ctx) => {
-    clearSession(ctx.from.id);
+    safeClearSession(ctx.from.id);
     await ctx.reply('Cancelled.', mainMenuKeyboard());
   });
 }

@@ -31,7 +31,7 @@ function initDatabase() {
     CREATE TABLE IF NOT EXISTS Users (
       user_id INTEGER PRIMARY KEY,
       username TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
     );
 
     CREATE TABLE IF NOT EXISTS Categories (
@@ -50,6 +50,8 @@ function initDatabase() {
       status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'sold')),
       sold_to INTEGER,
       sold_at TEXT,
+      reserved_by INTEGER,
+      reserved_until TEXT,
       FOREIGN KEY (category_id) REFERENCES Categories(id),
       FOREIGN KEY (sold_to) REFERENCES Users(user_id)
     );
@@ -59,13 +61,21 @@ function initDatabase() {
       amount REAL NOT NULL,
       status TEXT NOT NULL DEFAULT 'unclaimed' CHECK(status IN ('unclaimed', 'claimed')),
       claimed_by INTEGER,
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+      timestamp TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes')),
       FOREIGN KEY (claimed_by) REFERENCES Users(user_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_keys_category_status ON Keys(category_id, status);
     CREATE INDEX IF NOT EXISTS idx_keys_sold_to ON Keys(sold_to);
   `);
+
+  // Safely alter table to add reservation columns if upgrading existing database
+  try {
+    db.exec('ALTER TABLE Keys ADD COLUMN reserved_by INTEGER;');
+  } catch {}
+  try {
+    db.exec('ALTER TABLE Keys ADD COLUMN reserved_until TEXT;');
+  } catch {}
 
   return db;
 }
@@ -142,9 +152,14 @@ function updateCategoryQr(categoryId, qrPhotoFileId) {
 
 function getAvailableKeyCount(categoryId) {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS count FROM Keys WHERE category_id = ? AND status = 'available'")
+    .prepare(`
+      SELECT COUNT(*) AS count
+      FROM Keys
+      WHERE category_id = ? AND status = 'available'
+        AND (reserved_until IS NULL OR reserved_until < datetime('now', '+5 hours', '+30 minutes'))
+    `)
     .get(categoryId);
-  return row.count;
+  return row ? row.count : 0;
 }
 
 // ─── Keys ────────────────────────────────────────────────────────────────────
@@ -167,9 +182,78 @@ function bulkInsertKeys(categoryId, keyStrings) {
   });
 }
 
-function getAvailableKey(categoryId) {
+function reserveAvailableKey(categoryId, userId) {
+  return withTransaction(() => {
+    // 1. Clear expired reservations
+    getDb()
+      .prepare(`
+        UPDATE Keys
+        SET reserved_by = NULL, reserved_until = NULL
+        WHERE status = 'available'
+          AND reserved_until IS NOT NULL
+          AND reserved_until < datetime('now', '+5 hours', '+30 minutes')
+      `)
+      .run();
+
+    // 2. Check if user already has an active reservation for this category
+    const existing = getDb()
+      .prepare(`
+        SELECT * FROM Keys
+        WHERE category_id = ? AND status = 'available' AND reserved_by = ?
+          AND reserved_until > datetime('now', '+5 hours', '+30 minutes')
+        LIMIT 1
+      `)
+      .get(categoryId, userId);
+
+    if (existing) {
+      return existing;
+    }
+
+    // 3. Find an unreserved key and lock it for 10 minutes (IST)
+    const keyToReserve = getDb()
+      .prepare(`
+        SELECT * FROM Keys
+        WHERE category_id = ? AND status = 'available'
+          AND (reserved_until IS NULL OR reserved_until < datetime('now', '+5 hours', '+30 minutes'))
+        LIMIT 1
+      `)
+      .get(categoryId);
+
+    if (!keyToReserve) {
+      return null;
+    }
+
+    getDb()
+      .prepare(`
+        UPDATE Keys
+        SET reserved_by = ?, reserved_until = datetime('now', '+5 hours', '+30 minutes', '+10 minutes')
+        WHERE id = ?
+      `)
+      .run(userId, keyToReserve.id);
+
+    return getDb().prepare('SELECT * FROM Keys WHERE id = ?').get(keyToReserve.id);
+  });
+}
+
+function getAvailableKey(categoryId, userId = null) {
+  if (userId) {
+    const reserved = getDb()
+      .prepare(`
+        SELECT * FROM Keys
+        WHERE category_id = ? AND status = 'available' AND reserved_by = ?
+        LIMIT 1
+      `)
+      .get(categoryId, userId);
+    if (reserved) return reserved;
+  }
+
   return getDb()
-    .prepare("SELECT * FROM Keys WHERE category_id = ? AND status = 'available' LIMIT 1")
+    .prepare(`
+      SELECT * FROM Keys
+      WHERE category_id = ? AND status = 'available'
+        AND (reserved_until IS NULL OR reserved_until < datetime('now', '+5 hours', '+30 minutes'))
+      LIMIT 1
+    `)
     .get(categoryId);
 }
 
@@ -177,7 +261,8 @@ function markKeySold(keyId, userId) {
   getDb()
     .prepare(`
       UPDATE Keys
-      SET status = 'sold', sold_to = ?, sold_at = datetime('now')
+      SET status = 'sold', sold_to = ?, sold_at = datetime('now', '+5 hours', '+30 minutes'),
+          reserved_by = NULL, reserved_until = NULL
       WHERE id = ?
     `)
     .run(userId, keyId);
@@ -237,11 +322,13 @@ function processPaymentClaim({ utr, userId, categoryId, expectedAmount }) {
     const txn = getTransaction(utr);
     if (!txn) return { ok: false, reason: 'not_found' };
     if (txn.status === 'claimed') return { ok: false, reason: 'already_used' };
-    if (Math.abs(txn.amount - expectedAmount) > 0.01) {
+
+    // Forgiving amount: Overpayments allowed, underpayments rejected
+    if (txn.amount < expectedAmount) {
       return { ok: false, reason: 'amount_mismatch', expected: expectedAmount, received: txn.amount };
     }
 
-    const key = getAvailableKey(categoryId);
+    const key = getAvailableKey(categoryId, userId);
     if (!key) return { ok: false, reason: 'no_keys' };
 
     const claimed = claimTransaction(utr, userId);
@@ -269,6 +356,7 @@ module.exports = {
   updateCategoryQr,
   getAvailableKeyCount,
   bulkInsertKeys,
+  reserveAvailableKey,
   getAvailableKey,
   markKeySold,
   getUserKeys,
