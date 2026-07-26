@@ -47,7 +47,8 @@ function buyCategoriesKeyboard() {
 
   const buttons = categories.map((cat) => {
     const available = db.getAvailableKeyCount(cat.id);
-    const label = `${validityLabel(cat.validity_period)} — ₹${cat.amount}${available === 0 ? ' (Out of stock)' : ''}`;
+    const priceTag = (cat.amount === 0 || cat.validity_period === '15m') ? 'FREE' : `₹${cat.amount}`;
+    const label = `${validityLabel(cat.validity_period)} — ${priceTag}${available === 0 ? ' (Out of stock)' : ''}`;
     return [Markup.button.callback(label, `buy:${cat.id}`)];
   });
 

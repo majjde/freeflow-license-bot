@@ -254,6 +254,30 @@ function registerAdminHandlers(bot) {
     await ctx.answerCbQuery();
 
     const validityPeriod = ctx.match[1];
+
+    if (validityPeriod === '15m') {
+      const category = db.upsertCategory({
+        validityPeriod,
+        amount: 0,
+        upiId: 'FREE',
+        customMessage: 'Free 15 Min Demo Key',
+        qrPhotoFileId: null,
+      });
+
+      return ctx.editMessageText(
+        `✅ Category <b>Free 15 Min Demo (15m)</b> created free of cost (₹0)!\n\n` +
+          `You can now upload keys for this category.`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('📤 Upload Keys Now', `admin_upload_cat:${category.id}`)],
+            [Markup.button.callback('View Category', `admin_manage_cat:${category.id}`)],
+            [Markup.button.callback('Admin Panel', 'admin:panel')],
+          ]),
+        }
+      );
+    }
+
     setSession(ctx.from.id, {
       state: ADMIN_STATES.MANAGE_CATEGORY,
       validityPeriod,
@@ -541,8 +565,8 @@ function registerAdminHandlers(bot) {
       // New category: amount
       if (session.state === ADMIN_STATES.MANAGE_AMOUNT) {
         const amount = parseFloat(text);
-        if (Number.isNaN(amount) || amount <= 0) {
-          return ctx.reply('Invalid amount. Enter a positive number (e.g. 99).');
+        if (Number.isNaN(amount) || amount < 0) {
+          return ctx.reply('Invalid amount. Enter 0 for free plans or a positive number (e.g. 99).');
         }
 
         if (session.editing && session.categoryId) {
