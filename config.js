@@ -16,6 +16,7 @@ if (Number.isNaN(ADMIN_CHAT_ID)) {
 module.exports = {
   BOT_TOKEN: requireEnv('BOT_TOKEN'),
   ADMIN_CHAT_ID,
+  PUBLIC_GROUP_ID: process.env.PUBLIC_GROUP_ID,
   SUPPORT_HANDLE: process.env.SUPPORT_HANDLE || 'admin',
   DB_PATH: process.env.DB_PATH || (process.env.RAILWAY_ENVIRONMENT ? '/data/bot.db' : './data/bot.db'),
   VALIDITY_PERIODS: ['15m', '1d', '3d', '7d', '15d', '30d'],

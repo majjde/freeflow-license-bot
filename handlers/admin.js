@@ -11,6 +11,10 @@ const ADMIN_STATES = {
   MANAGE_UPI: 'admin_manage_upi',
   MANAGE_MESSAGE: 'admin_manage_message',
   MANAGE_QR: 'admin_manage_qr',
+  EDIT_SETTING_DOWNLOAD_MSG: 'admin_edit_setting_download_msg',
+  EDIT_SETTING_INSTALL: 'admin_edit_setting_install',
+  EDIT_SETTING_USAGE: 'admin_edit_setting_usage',
+  UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
 };
 
 function isAdmin(ctx) {
@@ -21,7 +25,18 @@ function adminPanelKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('📤 Upload Keys', 'admin:upload_keys')],
     [Markup.button.callback('⚙️ Manage Categories', 'admin:manage_categories')],
+    [Markup.button.callback('⚙️ Bot Settings', 'admin:settings')],
     [Markup.button.callback('📊 Stock Overview', 'admin:stock')],
+  ]);
+}
+
+function settingsSubmenuKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('✏️ Edit Install Guide', 'admin_edit_setting:install')],
+    [Markup.button.callback('✏️ Edit Usage Guide', 'admin_edit_setting:usage')],
+    [Markup.button.callback('✏️ Edit Download Msg', 'admin_edit_setting:download_msg')],
+    [Markup.button.callback('📦 Upload Extension (.zip)', 'admin_upload_extension')],
+    [Markup.button.callback('« Back', 'admin:panel')],
   ]);
 }
 
@@ -296,12 +311,102 @@ function registerAdminHandlers(bot) {
     ]));
   });
 
+  // ─── Bot Settings & CMS ──────────────────────────────────────────────────
+
+  bot.action('admin:settings', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+    clearSession(ctx.from.id);
+    await ctx.editMessageText('⚙️ <b>Bot Settings & Content Management</b>\n\nSelect an option to configure:', {
+      parse_mode: 'HTML',
+      ...settingsSubmenuKeyboard(),
+    });
+  });
+
+  bot.action(/^admin_edit_setting:(install|usage|download_msg)$/, async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+
+    const key = ctx.match[1];
+    const stateMap = {
+      install: ADMIN_STATES.EDIT_SETTING_INSTALL,
+      usage: ADMIN_STATES.EDIT_SETTING_USAGE,
+      download_msg: ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG,
+    };
+    const titleMap = {
+      install: 'How to Install Guide',
+      usage: 'How to Use Guide',
+      download_msg: 'Download Message',
+    };
+
+    setSession(ctx.from.id, {
+      state: stateMap[key],
+      settingKey: key,
+    });
+
+    const currentVal = db.getSetting(key, '(Not set)');
+
+    await ctx.editMessageText(
+      `✏️ <b>Edit ${titleMap[key]}</b>\n\n` +
+        `Current content:\n<code>${currentVal}</code>\n\n` +
+        `Please send the new formatted text for this setting (HTML tags supported, e.g. <b>bold</b>, <code>code</code>, etc.).\n\n` +
+        `Type /cancel to abort.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+      }
+    );
+  });
+
+  bot.action('admin_upload_extension', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+
+    setSession(ctx.from.id, {
+      state: ADMIN_STATES.UPLOAD_EXTENSION_FILE,
+    });
+
+    const currentFileId = db.getSetting('extension_file_id', null);
+
+    await ctx.editMessageText(
+      `📦 <b>Upload Extension (.zip)</b>\n\n` +
+        `Current Status: ${currentFileId ? '✅ Extension file is set' : '❌ No extension file uploaded'}\n\n` +
+        `Please send the extension <b>.zip file</b> as a Telegram document.\n\n` +
+        `Type /cancel to abort.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+      }
+    );
+  });
+
   // ─── Admin text / document / photo handlers ────────────────────────────────
 
   bot.on('document', async (ctx, next) => {
     if (!isAdmin(ctx)) return next();
 
     const session = getSession(ctx.from.id);
+
+    if (session.state === ADMIN_STATES.UPLOAD_EXTENSION_FILE) {
+      try {
+        const doc = ctx.message.document;
+        const fileId = doc.file_id;
+        db.setSetting('extension_file_id', fileId);
+        clearSession(ctx.from.id);
+        await ctx.reply(
+          '✅ <b>Extension File Uploaded!</b>\n\nUsers can now download this extension directly from the bot menu.',
+          {
+            parse_mode: 'HTML',
+            ...settingsSubmenuKeyboard(),
+          }
+        );
+      } catch (err) {
+        console.error('Extension upload error:', err);
+        await ctx.reply('Failed to process extension file. Please try again.');
+      }
+      return;
+    }
+
     if (session.state === ADMIN_STATES.UPLOAD_KEYS) {
       try {
         const doc = ctx.message.document;
@@ -395,6 +500,30 @@ function registerAdminHandlers(bot) {
     const text = ctx.message.text.trim();
 
     try {
+      // Dynamic CMS text setting update
+      if (
+        session.state === ADMIN_STATES.EDIT_SETTING_INSTALL ||
+        session.state === ADMIN_STATES.EDIT_SETTING_USAGE ||
+        session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG
+      ) {
+        if (!session.settingKey) {
+          clearSession(ctx.from.id);
+          return ctx.reply('Session expired. Please try again from Bot Settings.');
+        }
+
+        db.setSetting(session.settingKey, ctx.message.text);
+        const key = session.settingKey;
+        clearSession(ctx.from.id);
+
+        return ctx.reply(
+          `✅ <b>Setting Updated Successfully!</b>\n\nThe <code>${key}</code> text has been updated.`,
+          {
+            parse_mode: 'HTML',
+            ...settingsSubmenuKeyboard(),
+          }
+        );
+      }
+
       // Upload keys via text
       if (session.state === ADMIN_STATES.UPLOAD_KEYS && session.categoryId) {
         const keys = parseKeysFromInput(text);

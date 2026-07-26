@@ -1,6 +1,6 @@
 const { Markup } = require('telegraf');
 const db = require('../database');
-const { STATIC_GUIDES, SUPPORT_HANDLE } = require('../config');
+const { STATIC_GUIDES, SUPPORT_HANDLE, PUBLIC_GROUP_ID } = require('../config');
 const { getSession, setSession, clearSession } = require('../utils/session');
 const { isAdmin } = require('./admin');
 const {
@@ -30,8 +30,9 @@ function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🛒 Buy Key', 'menu:buy')],
     [Markup.button.callback('🔑 My Keys', 'menu:mykeys')],
-    [Markup.button.callback('📦 How to Install', 'menu:install')],
-    [Markup.button.callback('🚀 How to Use', 'menu:usage')],
+    [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
+    [Markup.button.callback('📖 How to Install', 'menu:install')],
+    [Markup.button.callback('💡 How to Use', 'menu:usage')],
     [Markup.button.callback('💬 Support', 'menu:support')],
   ]);
 }
@@ -140,27 +141,57 @@ function registerUserHandlers(bot) {
     }
   });
 
+  bot.action('menu:download', async (ctx) => {
+    await ctx.answerCbQuery();
+    const extensionFileId = db.getSetting('extension_file_id', null);
+    const downloadMsg = db.getSetting('download_msg', 'Here is the latest version of Freeflow!');
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Back to Menu', 'menu:main')],
+    ]);
+
+    if (extensionFileId) {
+      try {
+        await ctx.replyWithDocument(extensionFileId, {
+          caption: downloadMsg,
+          parse_mode: 'HTML',
+          ...keyboard,
+        });
+      } catch (err) {
+        console.error('Failed to send extension document:', err);
+        await ctx.reply(downloadMsg, { parse_mode: 'HTML', ...keyboard });
+      }
+    } else {
+      try {
+        await ctx.editMessageText(downloadMsg, { parse_mode: 'HTML', ...keyboard });
+      } catch {
+        await ctx.reply(downloadMsg, { parse_mode: 'HTML', ...keyboard });
+      }
+    }
+  });
+
   bot.action('menu:install', async (ctx) => {
     await ctx.answerCbQuery();
+    const text = db.getSetting('install', 'Guide not set yet.');
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('« Back to Menu', 'menu:main')],
     ]);
     try {
-      await ctx.editMessageText(STATIC_GUIDES.install, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
     } catch {
-      await ctx.reply(STATIC_GUIDES.install, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
     }
   });
 
   bot.action('menu:usage', async (ctx) => {
     await ctx.answerCbQuery();
+    const text = db.getSetting('usage', 'Guide not set yet.');
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('« Back to Menu', 'menu:main')],
     ]);
     try {
-      await ctx.editMessageText(STATIC_GUIDES.usage, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
     } catch {
-      await ctx.reply(STATIC_GUIDES.usage, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
     }
   });
 
@@ -348,6 +379,23 @@ function registerUserHandlers(bot) {
           ...mainMenuKeyboard(),
         }
       );
+
+      if (PUBLIC_GROUP_ID) {
+        try {
+          const rawName = ctx.from.username || ctx.from.first_name || 'User';
+          const maskedName =
+            rawName.length <= 2 ? `${rawName}**` : `${rawName.slice(0, -2)}**`;
+
+          await bot.telegram.sendMessage(
+            PUBLIC_GROUP_ID,
+            `🎉 <b>New Purchase!</b>\n\nA huge thanks to <b>${maskedName}</b> for grabbing a Freeflow Pro key! 🚀\n\nGet yours instantly via our bot!`,
+            { parse_mode: 'HTML' }
+          );
+        } catch (err) {
+          console.error('Failed to send public group notification:', err.message);
+        }
+      }
+
       return;
     }
 

@@ -65,6 +65,11 @@ function initDatabase() {
       FOREIGN KEY (claimed_by) REFERENCES Users(user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS Settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_keys_category_status ON Keys(category_id, status);
     CREATE INDEX IF NOT EXISTS idx_keys_sold_to ON Keys(sold_to);
   `);
@@ -365,6 +370,23 @@ function processPaymentClaim({ utr, userId, categoryId, expectedAmount }) {
   });
 }
 
+// ─── Settings (CMS) ─────────────────────────────────────────────────────────
+
+function getSetting(key, defaultValue = null) {
+  const row = getDb().prepare('SELECT value FROM Settings WHERE key = ?').get(key);
+  return row && row.value !== null ? row.value : defaultValue;
+}
+
+function setSetting(key, value) {
+  getDb()
+    .prepare(`
+      INSERT INTO Settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `)
+    .run(key, value);
+}
+
 module.exports = {
   initDatabase,
   getDb,
@@ -387,4 +409,6 @@ module.exports = {
   getTransaction,
   claimTransaction,
   processPaymentClaim,
+  getSetting,
+  setSetting,
 };
