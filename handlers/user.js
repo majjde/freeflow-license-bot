@@ -82,7 +82,7 @@ async function checkGroupMembership(ctx, userId) {
 async function sendGatekeeperPrompt(ctx) {
   const text =
     `🛑 <b>Wait! You need to join our community first.</b>\n\n` +
-    `To purchase a Freeflow key and get support, you must be a member of our official discussion group.\n\n` +
+    `To use this bot and get your Freeflow key, you must be a member of our official discussion group.\n\n` +
     `Tap the button below to join, then click 'Verify Join' to continue!`;
 
   const keyboard = Markup.inlineKeyboard([
@@ -153,30 +153,18 @@ function registerUserHandlers(bot) {
   bot.action('menu:main', async (ctx) => {
     await ctx.answerCbQuery();
     safeClearSession(ctx.from.id);
-
-    const isMember = await checkGroupMembership(ctx, ctx.from.id);
-    if (!isMember) {
-      return sendGatekeeperPrompt(ctx);
-    }
-
     await showMainMenu(ctx);
   });
 
   bot.action('menu:buy', async (ctx) => {
     await ctx.answerCbQuery();
-
-    const isMember = await checkGroupMembership(ctx, ctx.from.id);
-    if (!isMember) {
-      return sendGatekeeperPrompt(ctx);
-    }
-
     await showCategorySelection(ctx);
   });
 
   bot.action('verify_join', async (ctx) => {
     const isMember = await checkGroupMembership(ctx, ctx.from.id);
     if (isMember) {
-      await ctx.answerCbQuery('✅ Verification successful!');
+      await ctx.answerCbQuery('✅ Welcome!');
       await showMainMenu(ctx);
     } else {
       await ctx.answerCbQuery('❌ You have not joined the group yet!', { show_alert: true });
@@ -411,7 +399,7 @@ function registerUserHandlers(bot) {
   // ─── UTR verification (Forgiving Input) ───────────────────────────────────
 
   bot.on('text', async (ctx, next) => {
-    if (ctx.chat?.type !== 'private') return next();
+    if (ctx.chat?.type !== 'private') return;
 
     const session = getSession(ctx.from.id);
 
@@ -509,7 +497,7 @@ function registerUserHandlers(bot) {
 
   // Global fallback for unrecognized text from non-admin users not in AWAITING_UTR state
   bot.on('text', async (ctx, next) => {
-    if (ctx.chat?.type !== 'private') return next();
+    if (ctx.chat?.type !== 'private') return;
     if (isAdmin(ctx)) return next();
 
     const session = getSession(ctx.from.id);
