@@ -354,6 +354,18 @@ function processPaymentClaim({ utr, userId, categoryId, expectedAmount }) {
       return { ok: false, reason: 'amount_mismatch', expected: expectedAmount, received: txn.amount };
     }
 
+    const category = getCategoryById(categoryId);
+    if (category && category.validity_period === 'vip') {
+      const claimed = claimTransaction(utr, userId);
+      if (!claimed) return { ok: false, reason: 'already_used' };
+
+      return {
+        ok: true,
+        isVip: true,
+        amount: expectedAmount,
+      };
+    }
+
     const key = getAvailableKey(categoryId, userId);
     if (!key) return { ok: false, reason: 'no_keys' };
 

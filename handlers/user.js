@@ -32,6 +32,7 @@ function validityLabel(period) {
 function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🛒 Buy Key', 'menu:buy')],
+    [Markup.button.callback('👑 Join VIP Group', 'menu:vip')],
     [Markup.button.callback('🔑 My Keys', 'menu:mykeys')],
     [Markup.button.callback("👑 What's inside VIP", 'menu:vip_info')],
     [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
@@ -41,7 +42,7 @@ function mainMenuKeyboard() {
 }
 
 function buyCategoriesKeyboard() {
-  const categories = db.getAllCategories();
+  const categories = db.getAllCategories().filter((cat) => cat.validity_period !== 'vip');
   if (categories.length === 0) {
     return Markup.inlineKeyboard([
       [Markup.button.callback('« Back to Menu', 'menu:main')],
@@ -112,7 +113,7 @@ async function showMainMenu(ctx) {
 }
 
 async function showCategorySelection(ctx) {
-  const categories = db.getAllCategories();
+  const categories = db.getAllCategories().filter((cat) => cat.validity_period !== 'vip');
 
   if (categories.length === 0) {
     const text = 'No plans available right now. Please check back later or contact support.';
@@ -160,6 +161,63 @@ function registerUserHandlers(bot) {
   bot.action('menu:buy', async (ctx) => {
     await ctx.answerCbQuery();
     await showCategorySelection(ctx);
+  });
+
+  bot.action('menu:vip', async (ctx) => {
+    await ctx.answerCbQuery();
+    db.upsertUser(ctx.from.id, ctx.from.username);
+
+    const isMember = await checkGroupMembership(ctx, ctx.from.id);
+    if (!isMember) {
+      return sendGatekeeperPrompt(ctx);
+    }
+
+    const category = db.getAllCategories().find((c) => c.validity_period === 'vip');
+    if (!category) {
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('« Back to Menu', 'menu:main')],
+      ]);
+      const text = 'VIP access is not configured yet. Please check back later!';
+      try {
+        return await ctx.editMessageText(text, keyboard);
+      } catch {
+        return await ctx.reply(text, keyboard);
+      }
+    }
+
+    safeClearSession(ctx.from.id);
+
+    setSession(ctx.from.id, {
+      state: USER_STATES.AWAITING_UTR,
+      categoryId: category.id,
+    });
+
+    await notifyPaymentAttempt(bot, ctx.from, category);
+
+    const caption =
+      `👑 <b>VIP Group Access</b>\n\n` +
+      `💰 Amount: <b>₹${category.amount}</b>\n` +
+      `📱 UPI ID: <code>${category.upi_id}</code>\n\n` +
+      (category.custom_message ? `${category.custom_message}\n\n` : '') +
+      `Scan the QR code above or pay using the UPI ID.\n\n` +
+      `💬 <b>Reply to this message with your 12-digit UTR/RRN number once paid.</b>`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Cancel', 'menu:main')],
+    ]);
+
+    if (category.qr_photo_file_id) {
+      await ctx.replyWithPhoto(category.qr_photo_file_id, {
+        caption,
+        parse_mode: 'HTML',
+        ...keyboard,
+      });
+    } else {
+      await ctx.reply(
+        caption + '\n\n⚠️ QR code not configured yet. Use the UPI ID above to pay manually.',
+        { parse_mode: 'HTML', ...keyboard }
+      );
+    }
   });
 
   bot.action('verify_join', async (ctx) => {
@@ -413,46 +471,61 @@ function registerUserHandlers(bot) {
     safeClearSession(ctx.from.id);
 
     if (result.ok) {
-      await notifyKeyDelivered(bot, ctx.from, result.key, category);
-
       if (category.validity_period === 'vip') {
-        let vipMessage =
-          `🎉 <b>Payment Verified!</b>\n\n` +
-          `Welcome to the VIP Tier! Here is your license key:\n` +
-          `<code>${result.key}</code>\n\n`;
-
+        let inviteText = '';
         try {
           if (!config.VIP_GROUP_ID) {
             throw new Error('VIP_GROUP_ID is not configured');
           }
           const inviteLink = await ctx.telegram.createChatInviteLink(config.VIP_GROUP_ID, { member_limit: 1 });
-          vipMessage +=
-            `👑 <b>Join the VIP Group:</b>\n` +
-            `Click the unique link below to join our private group. (This link will only work once!)\n\n` +
-            `${inviteLink.invite_link}`;
+          inviteText = `Click the unique link below to join our private group. (This link will only work once!)\n\n${inviteLink.invite_link}`;
         } catch (err) {
           console.error('Failed to generate VIP group invite link:', err);
-          vipMessage += `VIP Group link could not be generated. Please contact support.`;
+          inviteText = `VIP Group link could not be generated. Please contact support.`;
         }
 
-        await ctx.reply(vipMessage, {
-          parse_mode: 'HTML',
-          ...mainMenuKeyboard(),
-        });
-      } else {
         await ctx.reply(
-          `🎉 <b>Payment Verified!</b>\n\n` +
-            `Here is your license key:\n\n` +
-            `<code>${result.key}</code>\n\n` +
-            `Plan: ${validityLabel(category.validity_period)}\n` +
-            `Amount Paid: ₹${result.amount}\n\n` +
-            `Tap "How to Install" in the main menu if you need setup help.`,
+          `🎉 <b>VIP Payment Verified!</b>\n\n` +
+            `Welcome to the Inner Circle! ${inviteText}`,
           {
             parse_mode: 'HTML',
             ...mainMenuKeyboard(),
           }
         );
+
+        if (PUBLIC_GROUP_ID) {
+          try {
+            const rawName = ctx.from.username || ctx.from.first_name || 'User';
+            const maskedName =
+              rawName.length <= 2 ? `${rawName}**` : `${rawName.slice(0, -2)}**`;
+
+            await bot.telegram.sendMessage(
+              PUBLIC_GROUP_ID,
+              `👑 <b>New VIP Member!</b> A huge thanks to <b>${maskedName}</b> for joining the Private VIP Group! 🚀`,
+              { parse_mode: 'HTML' }
+            );
+          } catch (err) {
+            console.error('Failed to send public group VIP notification:', err.message);
+          }
+        }
+
+        return;
       }
+
+      await notifyKeyDelivered(bot, ctx.from, result.key, category);
+
+      await ctx.reply(
+        `🎉 <b>Payment Verified!</b>\n\n` +
+          `Here is your license key:\n\n` +
+          `<code>${result.key}</code>\n\n` +
+          `Plan: ${validityLabel(category.validity_period)}\n` +
+          `Amount Paid: ₹${result.amount}\n\n` +
+          `Tap "How to Install" in the main menu if you need setup help.`,
+        {
+          parse_mode: 'HTML',
+          ...mainMenuKeyboard(),
+        }
+      );
 
       if (PUBLIC_GROUP_ID) {
         try {
