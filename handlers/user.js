@@ -79,6 +79,37 @@ async function checkGroupMembership(ctx, userId) {
   }
 }
 
+async function sendGatekeeperPrompt(ctx) {
+  const text =
+    `🛑 <b>Wait! You need to join our community first.</b>\n\n` +
+    `To purchase a Freeflow key and get support, you must be a member of our official discussion group.\n\n` +
+    `Tap the button below to join, then click 'Verify Join' to continue!`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.url('Join Group', config.DISCUSSION_GROUP_LINK || 'https://t.me')],
+    [Markup.button.callback('✅ Verify Join', 'verify_join')],
+  ]);
+
+  try {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+  } catch {
+    await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+  }
+}
+
+async function showMainMenu(ctx) {
+  const text =
+    `👋 Welcome to the License Key Bot!\n\n` +
+    `Purchase a license for our browser extension, pay via UPI, and receive your key instantly after verification.\n\n` +
+    `Choose an option below:`;
+
+  try {
+    await ctx.editMessageText(text, { parse_mode: 'HTML', ...mainMenuKeyboard() });
+  } catch {
+    await ctx.reply(text, { parse_mode: 'HTML', ...mainMenuKeyboard() });
+  }
+}
+
 async function showCategorySelection(ctx) {
   const categories = db.getAllCategories();
 
@@ -107,12 +138,12 @@ function registerUserHandlers(bot) {
       db.upsertUser(ctx.from.id, ctx.from.username);
       safeClearSession(ctx.from.id);
 
-      await ctx.reply(
-        `👋 Welcome to the License Key Bot!\n\n` +
-          `Purchase a license for our browser extension, pay via UPI, and receive your key instantly after verification.\n\n` +
-          `Choose an option below:`,
-        mainMenuKeyboard()
-      );
+      const isMember = await checkGroupMembership(ctx, ctx.from.id);
+      if (!isMember) {
+        return sendGatekeeperPrompt(ctx);
+      }
+
+      await showMainMenu(ctx);
     } catch (err) {
       console.error('Start command error:', err);
       await ctx.reply('Welcome! Please try again in a moment.');
@@ -122,11 +153,13 @@ function registerUserHandlers(bot) {
   bot.action('menu:main', async (ctx) => {
     await ctx.answerCbQuery();
     safeClearSession(ctx.from.id);
-    try {
-      await ctx.editMessageText('🏠 Main Menu\n\nChoose an option:', mainMenuKeyboard());
-    } catch {
-      await ctx.reply('🏠 Main Menu\n\nChoose an option:', mainMenuKeyboard());
+
+    const isMember = await checkGroupMembership(ctx, ctx.from.id);
+    if (!isMember) {
+      return sendGatekeeperPrompt(ctx);
     }
+
+    await showMainMenu(ctx);
   });
 
   bot.action('menu:buy', async (ctx) => {
@@ -134,22 +167,7 @@ function registerUserHandlers(bot) {
 
     const isMember = await checkGroupMembership(ctx, ctx.from.id);
     if (!isMember) {
-      const text =
-        `🛑 <b>Wait! You need to join our community first.</b>\n\n` +
-        `To purchase a Freeflow key and get support, you must be a member of our official discussion group.\n\n` +
-        `Tap the button below to join, then click 'Verify Join' to continue!`;
-
-      const keyboard = Markup.inlineKeyboard([
-        [Markup.button.url('Join Group', config.DISCUSSION_GROUP_LINK || 'https://t.me')],
-        [Markup.button.callback('✅ Verify Join', 'verify_join')],
-      ]);
-
-      try {
-        await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
-      } catch {
-        await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
-      }
-      return;
+      return sendGatekeeperPrompt(ctx);
     }
 
     await showCategorySelection(ctx);
@@ -159,7 +177,7 @@ function registerUserHandlers(bot) {
     const isMember = await checkGroupMembership(ctx, ctx.from.id);
     if (isMember) {
       await ctx.answerCbQuery('✅ Verification successful!');
-      await showCategorySelection(ctx);
+      await showMainMenu(ctx);
     } else {
       await ctx.answerCbQuery('❌ You have not joined the group yet!', { show_alert: true });
     }
