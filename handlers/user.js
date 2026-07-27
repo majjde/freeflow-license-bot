@@ -102,6 +102,7 @@ async function showCategorySelection(ctx) {
 
 function registerUserHandlers(bot) {
   bot.command('start', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
     try {
       db.upsertUser(ctx.from.id, ctx.from.username);
       safeClearSession(ctx.from.id);
@@ -392,6 +393,8 @@ function registerUserHandlers(bot) {
   // ─── UTR verification (Forgiving Input) ───────────────────────────────────
 
   bot.on('text', async (ctx, next) => {
+    if (ctx.chat?.type !== 'private') return next();
+
     const session = getSession(ctx.from.id);
 
     if (session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
@@ -481,12 +484,14 @@ function registerUserHandlers(bot) {
   });
 
   bot.command('cancel', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
     safeClearSession(ctx.from.id);
     await ctx.reply('Cancelled.', mainMenuKeyboard());
   });
 
   // Global fallback for unrecognized text from non-admin users not in AWAITING_UTR state
   bot.on('text', async (ctx, next) => {
+    if (ctx.chat?.type !== 'private') return next();
     if (isAdmin(ctx)) return next();
 
     const session = getSession(ctx.from.id);

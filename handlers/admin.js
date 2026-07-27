@@ -19,7 +19,7 @@ const ADMIN_STATES = {
 };
 
 function isAdmin(ctx) {
-  return ctx.from && ctx.chat.id === ADMIN_CHAT_ID;
+  return ctx.from && ctx.chat && ctx.chat.type === 'private' && ctx.chat.id === ADMIN_CHAT_ID;
 }
 
 function adminPanelKeyboard() {
@@ -90,6 +90,7 @@ function parseKeysFromInput(text) {
 
 function registerAdminHandlers(bot) {
   bot.command('admin', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
     if (!isAdmin(ctx)) {
       return ctx.reply('⛔ Unauthorized.');
     }
@@ -100,6 +101,7 @@ function registerAdminHandlers(bot) {
   });
 
   bot.command('backup', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
     if (!isAdmin(ctx)) {
       return ctx.reply('⛔ Unauthorized.');
     }
