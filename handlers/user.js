@@ -23,6 +23,8 @@ function validityLabel(period) {
     '7d': '7 Days',
     '15d': '15 Days',
     '30d': '30 Days',
+    'lifetime': 'Lifetime Access',
+    'vip': 'Join VIP Group',
   };
   return map[period] || period;
 }
@@ -31,10 +33,9 @@ function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🛒 Buy Key', 'menu:buy')],
     [Markup.button.callback('🔑 My Keys', 'menu:mykeys')],
+    [Markup.button.callback("👑 What's inside VIP", 'menu:vip_info')],
     [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
-    [Markup.button.callback('📖 How to Install', 'menu:install')],
     [Markup.button.callback('💡 How to Use', 'menu:usage')],
-    [Markup.button.callback('⚠️ Important Notice', 'menu:notice')],
     [Markup.button.callback('💬 Support', 'menu:support')],
   ]);
 }
@@ -227,35 +228,9 @@ function registerUserHandlers(bot) {
     }
   });
 
-  bot.action('menu:install', async (ctx) => {
+  bot.action('menu:vip_info', async (ctx) => {
     await ctx.answerCbQuery();
-    const text = db.getSetting('install', 'Guide not set yet.');
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('« Back to Menu', 'menu:main')],
-    ]);
-    try {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
-    } catch {
-      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
-    }
-  });
-
-  bot.action('menu:usage', async (ctx) => {
-    await ctx.answerCbQuery();
-    const text = db.getSetting('usage', 'Guide not set yet.');
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('« Back to Menu', 'menu:main')],
-    ]);
-    try {
-      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
-    } catch {
-      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
-    }
-  });
-
-  bot.action('menu:notice', async (ctx) => {
-    await ctx.answerCbQuery();
-    const text = db.getSetting('important_notice', 'No new notices at this time.');
+    const text = db.getSetting('vip_info', 'VIP info coming soon.');
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('« Back to Menu', 'menu:main')],
     ]);
@@ -440,18 +415,44 @@ function registerUserHandlers(bot) {
     if (result.ok) {
       await notifyKeyDelivered(bot, ctx.from, result.key, category);
 
-      await ctx.reply(
-        `🎉 <b>Payment Verified!</b>\n\n` +
-          `Here is your license key:\n\n` +
-          `<code>${result.key}</code>\n\n` +
-          `Plan: ${validityLabel(category.validity_period)}\n` +
-          `Amount Paid: ₹${result.amount}\n\n` +
-          `Tap "How to Install" in the main menu if you need setup help.`,
-        {
+      if (category.validity_period === 'vip') {
+        let vipMessage =
+          `🎉 <b>Payment Verified!</b>\n\n` +
+          `Welcome to the VIP Tier! Here is your license key:\n` +
+          `<code>${result.key}</code>\n\n`;
+
+        try {
+          if (!config.VIP_GROUP_ID) {
+            throw new Error('VIP_GROUP_ID is not configured');
+          }
+          const inviteLink = await ctx.telegram.createChatInviteLink(config.VIP_GROUP_ID, { member_limit: 1 });
+          vipMessage +=
+            `👑 <b>Join the VIP Group:</b>\n` +
+            `Click the unique link below to join our private group. (This link will only work once!)\n\n` +
+            `${inviteLink.invite_link}`;
+        } catch (err) {
+          console.error('Failed to generate VIP group invite link:', err);
+          vipMessage += `VIP Group link could not be generated. Please contact support.`;
+        }
+
+        await ctx.reply(vipMessage, {
           parse_mode: 'HTML',
           ...mainMenuKeyboard(),
-        }
-      );
+        });
+      } else {
+        await ctx.reply(
+          `🎉 <b>Payment Verified!</b>\n\n` +
+            `Here is your license key:\n\n` +
+            `<code>${result.key}</code>\n\n` +
+            `Plan: ${validityLabel(category.validity_period)}\n` +
+            `Amount Paid: ₹${result.amount}\n\n` +
+            `Tap "How to Install" in the main menu if you need setup help.`,
+          {
+            parse_mode: 'HTML',
+            ...mainMenuKeyboard(),
+          }
+        );
+      }
 
       if (PUBLIC_GROUP_ID) {
         try {
