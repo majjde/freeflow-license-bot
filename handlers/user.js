@@ -1,6 +1,7 @@
 const { Markup } = require('telegraf');
 const db = require('../database');
-const { STATIC_GUIDES, SUPPORT_HANDLE, PUBLIC_GROUP_ID } = require('../config');
+const config = require('../config');
+const { STATIC_GUIDES, SUPPORT_HANDLE, PUBLIC_GROUP_ID } = config;
 const { getSession, setSession, clearSession } = require('../utils/session');
 const { isAdmin } = require('./admin');
 const {
@@ -33,6 +34,7 @@ function mainMenuKeyboard() {
     [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
     [Markup.button.callback('📖 How to Install', 'menu:install')],
     [Markup.button.callback('💡 How to Use', 'menu:usage')],
+    [Markup.button.callback('⚠️ Important Notice', 'menu:notice')],
     [Markup.button.callback('💬 Support', 'menu:support')],
   ]);
 }
@@ -62,6 +64,40 @@ function safeClearSession(userId) {
     clearTimeout(session.timerId);
   }
   clearSession(userId);
+}
+
+async function checkGroupMembership(ctx, userId) {
+  if (!config.DISCUSSION_GROUP_ID) {
+    return true;
+  }
+  try {
+    const member = await ctx.telegram.getChatMember(config.DISCUSSION_GROUP_ID, userId);
+    return ['member', 'administrator', 'creator'].includes(member.status);
+  } catch (err) {
+    console.error('Error checking group membership:', err);
+    return false;
+  }
+}
+
+async function showCategorySelection(ctx) {
+  const categories = db.getAllCategories();
+
+  if (categories.length === 0) {
+    const text = 'No plans available right now. Please check back later or contact support.';
+    try {
+      await ctx.editMessageText(text, buyCategoriesKeyboard());
+    } catch {
+      await ctx.reply(text, buyCategoriesKeyboard());
+    }
+    return;
+  }
+
+  const text = '🛒 Select a license plan:';
+  try {
+    await ctx.editMessageText(text, buyCategoriesKeyboard());
+  } catch {
+    await ctx.reply(text, buyCategoriesKeyboard());
+  }
 }
 
 function registerUserHandlers(bot) {
@@ -94,23 +130,37 @@ function registerUserHandlers(bot) {
 
   bot.action('menu:buy', async (ctx) => {
     await ctx.answerCbQuery();
-    const categories = db.getAllCategories();
 
-    if (categories.length === 0) {
-      const text = 'No plans available right now. Please check back later or contact support.';
+    const isMember = await checkGroupMembership(ctx, ctx.from.id);
+    if (!isMember) {
+      const text =
+        `🛑 <b>Wait! You need to join our community first.</b>\n\n` +
+        `To purchase a Freeflow key and get support, you must be a member of our official discussion group.\n\n` +
+        `Tap the button below to join, then click 'Verify Join' to continue!`;
+
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('Join Group', config.DISCUSSION_GROUP_LINK || 'https://t.me')],
+        [Markup.button.callback('✅ Verify Join', 'verify_join')],
+      ]);
+
       try {
-        await ctx.editMessageText(text, buyCategoriesKeyboard());
+        await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
       } catch {
-        await ctx.reply(text, buyCategoriesKeyboard());
+        await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
       }
       return;
     }
 
-    const text = '🛒 Select a license plan:';
-    try {
-      await ctx.editMessageText(text, buyCategoriesKeyboard());
-    } catch {
-      await ctx.reply(text, buyCategoriesKeyboard());
+    await showCategorySelection(ctx);
+  });
+
+  bot.action('verify_join', async (ctx) => {
+    const isMember = await checkGroupMembership(ctx, ctx.from.id);
+    if (isMember) {
+      await ctx.answerCbQuery('✅ Verification successful!');
+      await showCategorySelection(ctx);
+    } else {
+      await ctx.answerCbQuery('❌ You have not joined the group yet!', { show_alert: true });
     }
   });
 
@@ -186,6 +236,19 @@ function registerUserHandlers(bot) {
   bot.action('menu:usage', async (ctx) => {
     await ctx.answerCbQuery();
     const text = db.getSetting('usage', 'Guide not set yet.');
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Back to Menu', 'menu:main')],
+    ]);
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+    }
+  });
+
+  bot.action('menu:notice', async (ctx) => {
+    await ctx.answerCbQuery();
+    const text = db.getSetting('important_notice', 'No new notices at this time.');
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('« Back to Menu', 'menu:main')],
     ]);

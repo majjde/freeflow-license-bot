@@ -6,6 +6,20 @@
 const sessions = new Map();
 const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+const ADMIN_STATES = {
+  UPLOAD_KEYS: 'admin_upload_keys',
+  MANAGE_CATEGORY: 'admin_manage_category',
+  MANAGE_AMOUNT: 'admin_manage_amount',
+  MANAGE_UPI: 'admin_manage_upi',
+  MANAGE_MESSAGE: 'admin_manage_message',
+  MANAGE_QR: 'admin_manage_qr',
+  EDIT_SETTING_DOWNLOAD_MSG: 'admin_edit_setting_download_msg',
+  EDIT_SETTING_INSTALL: 'admin_edit_setting_install',
+  EDIT_SETTING_USAGE: 'admin_edit_setting_usage',
+  EDIT_SETTING_NOTICE: 'admin_edit_setting_notice',
+  UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
+};
+
 function getSession(id) {
   if (sessions.has(id)) {
     const sess = sessions.get(id);
@@ -43,4 +57,5 @@ module.exports = {
   setSession,
   clearSession,
   hasSession,
+  ADMIN_STATES,
 };

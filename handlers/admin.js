@@ -14,6 +14,7 @@ const ADMIN_STATES = {
   EDIT_SETTING_DOWNLOAD_MSG: 'admin_edit_setting_download_msg',
   EDIT_SETTING_INSTALL: 'admin_edit_setting_install',
   EDIT_SETTING_USAGE: 'admin_edit_setting_usage',
+  EDIT_SETTING_NOTICE: 'admin_edit_setting_notice',
   UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
 };
 
@@ -35,6 +36,7 @@ function settingsSubmenuKeyboard() {
     [Markup.button.callback('✏️ Edit Install Guide', 'admin_edit_setting:install')],
     [Markup.button.callback('✏️ Edit Usage Guide', 'admin_edit_setting:usage')],
     [Markup.button.callback('✏️ Edit Download Msg', 'admin_edit_setting:download_msg')],
+    [Markup.button.callback('✏️ Edit Important Notice', 'admin_edit_setting:notice')],
     [Markup.button.callback('📦 Upload Extension (.zip)', 'admin_upload_extension')],
     [Markup.button.callback('« Back', 'admin:panel')],
   ]);
@@ -347,7 +349,7 @@ function registerAdminHandlers(bot) {
     });
   });
 
-  bot.action(/^admin_edit_setting:(install|usage|download_msg)$/, async (ctx) => {
+  bot.action(/^admin_edit_setting:(install|usage|download_msg|notice)$/, async (ctx) => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
     await ctx.answerCbQuery();
 
@@ -356,19 +358,29 @@ function registerAdminHandlers(bot) {
       install: ADMIN_STATES.EDIT_SETTING_INSTALL,
       usage: ADMIN_STATES.EDIT_SETTING_USAGE,
       download_msg: ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG,
+      notice: ADMIN_STATES.EDIT_SETTING_NOTICE,
     };
     const titleMap = {
       install: 'How to Install Guide',
       usage: 'How to Use Guide',
       download_msg: 'Download Message',
+      notice: 'Important Notice',
     };
+    const settingKeyMap = {
+      install: 'install',
+      usage: 'usage',
+      download_msg: 'download_msg',
+      notice: 'important_notice',
+    };
+
+    const settingKey = settingKeyMap[key] || key;
 
     setSession(ctx.from.id, {
       state: stateMap[key],
-      settingKey: key,
+      settingKey,
     });
 
-    const currentVal = db.getSetting(key, '(Not set)');
+    const currentVal = db.getSetting(settingKey, '(Not set)');
 
     await ctx.editMessageText(
       `✏️ <b>Edit ${titleMap[key]}</b>\n\n` +
@@ -528,7 +540,8 @@ function registerAdminHandlers(bot) {
       if (
         session.state === ADMIN_STATES.EDIT_SETTING_INSTALL ||
         session.state === ADMIN_STATES.EDIT_SETTING_USAGE ||
-        session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG
+        session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG ||
+        session.state === ADMIN_STATES.EDIT_SETTING_NOTICE
       ) {
         if (!session.settingKey) {
           clearSession(ctx.from.id);
