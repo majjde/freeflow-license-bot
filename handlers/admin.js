@@ -76,7 +76,7 @@ function validityLabel(period) {
     '15d': '15 Days',
     '30d': '30 Days',
     'lifetime': 'Lifetime Access',
-    'vip': 'Join VIP Group',
+    'vip': 'Learn website creation with AI',
   };
   return map[period] || period;
 }
@@ -243,8 +243,13 @@ function registerAdminHandlers(bot) {
   bot.action(/^admin_delete_cat:(\d+)$/, async (ctx) => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
     const categoryId = Number(ctx.match[1]);
-    db.deleteCategory(categoryId);
-    await ctx.answerCbQuery('Category deleted');
+    try {
+      db.deleteCategory(categoryId);
+      await ctx.answerCbQuery('Category deleted');
+    } catch (err) {
+      console.error('Failed to delete category:', err);
+      await ctx.answerCbQuery('Failed to delete category');
+    }
     clearSession(ctx.from.id);
 
     await ctx.editMessageText(

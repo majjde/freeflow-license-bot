@@ -24,7 +24,7 @@ function validityLabel(period) {
     '15d': '15 Days',
     '30d': '30 Days',
     'lifetime': 'Lifetime Access',
-    'vip': 'Join VIP Group',
+    'vip': 'Learn website creation with AI',
   };
   return map[period] || period;
 }
@@ -32,9 +32,8 @@ function validityLabel(period) {
 function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🛒 Buy Key', 'menu:buy')],
-    [Markup.button.callback('👑 Join VIP Group', 'menu:vip')],
+    [Markup.button.callback('🚀 Learn website creation with AI', 'menu:vip')],
     [Markup.button.callback('🔑 My Keys', 'menu:mykeys')],
-    [Markup.button.callback("👑 What's inside VIP", 'menu:vip_info')],
     [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
     [Markup.button.callback('💡 How to Use', 'menu:usage')],
     [Markup.button.callback('💬 Support', 'menu:support')],
@@ -172,12 +171,38 @@ function registerUserHandlers(bot) {
       return sendGatekeeperPrompt(ctx);
     }
 
+    const text = db.getSetting(
+      'vip_info',
+      '🚀 <b>Learn website creation with AI</b>\n\nGet exclusive access to our step-by-step guides and AI website building resources.'
+    );
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('Get access', 'menu:vip_checkout')],
+      [Markup.button.callback('Cancel', 'menu:main')],
+    ]);
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+    }
+  });
+
+  bot.action('menu:vip_checkout', async (ctx) => {
+    await ctx.answerCbQuery();
+    db.upsertUser(ctx.from.id, ctx.from.username);
+
+    const isMember = await checkGroupMembership(ctx, ctx.from.id);
+    if (!isMember) {
+      return sendGatekeeperPrompt(ctx);
+    }
+
     const category = db.getAllCategories().find((c) => c.validity_period === 'vip');
     if (!category) {
       const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('« Back to Menu', 'menu:main')],
       ]);
-      const text = 'VIP access is not configured yet. Please check back later!';
+      const text = 'Access to this program is not configured yet. Please check back later!';
       try {
         return await ctx.editMessageText(text, keyboard);
       } catch {
@@ -195,7 +220,7 @@ function registerUserHandlers(bot) {
     await notifyPaymentAttempt(bot, ctx.from, category);
 
     const caption =
-      `👑 <b>VIP Group Access</b>\n\n` +
+      `🚀 <b>Learn website creation with AI Access</b>\n\n` +
       `💰 Amount: <b>₹${category.amount}</b>\n` +
       `📱 UPI ID: <code>${category.upi_id}</code>\n\n` +
       (category.custom_message ? `${category.custom_message}\n\n` : '') +
@@ -296,6 +321,23 @@ function registerUserHandlers(bot) {
       await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
     } catch {
       await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+    }
+  });
+
+  bot.action('menu:usage', async (ctx) => {
+    await ctx.answerCbQuery();
+    const usageGuide = db.getSetting('usage', STATIC_GUIDES.usage);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Back to Menu', 'menu:main')],
+    ]);
+    try {
+      await ctx.editMessageText(usageGuide, { parse_mode: 'Markdown', ...keyboard });
+    } catch {
+      try {
+        await ctx.editMessageText(usageGuide, { parse_mode: 'HTML', ...keyboard });
+      } catch {
+        await ctx.reply(usageGuide, { ...keyboard });
+      }
     }
   });
 

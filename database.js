@@ -158,7 +158,7 @@ function updateCategoryQr(categoryId, qrPhotoFileId) {
 function deleteCategory(categoryId) {
   return withTransaction(() => {
     getDb()
-      .prepare("DELETE FROM Keys WHERE category_id = ? AND status = 'available'")
+      .prepare('DELETE FROM Keys WHERE category_id = ?')
       .run(categoryId);
 
     const result = getDb()
