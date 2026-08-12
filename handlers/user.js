@@ -2,7 +2,7 @@ const { Markup } = require('telegraf');
 const QRCode = require('qrcode');
 const db = require('../database');
 const config = require('../config');
-const { STATIC_GUIDES, SUPPORT_HANDLE, PUBLIC_GROUP_ID } = config;
+const { STATIC_GUIDES, SUPPORT_HANDLE, PUBLIC_GROUP_ID, ADMIN_CHAT_ID } = config;
 const { getSession, setSession, clearSession, USER_STATES } = require('../utils/session');
 const { isAdmin } = require('./admin');
 const {
@@ -31,7 +31,8 @@ function mainMenuKeyboard() {
     [Markup.button.callback('🎁 Get free key', 'menu:free_key')],
     [Markup.button.callback('🛒 Buy key', 'menu:buy')],
     [Markup.button.callback('🔑 My keys', 'menu:my_keys')],
-    [Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')],
+    [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
+    [Markup.button.callback('🎁 Refer & Earn', 'menu:referral')],
     [Markup.button.callback('📖 How to use', 'menu:usage')],
     [Markup.button.callback('🎫 Raise a ticket', 'menu:ticket')],
   ]);
@@ -201,9 +202,47 @@ function registerUserHandlers(bot) {
   bot.command('start', async (ctx) => {
     if (ctx.chat?.type !== 'private') return;
     try {
-      db.upsertUser(ctx.from.id, ctx.from.username);
+      const userId = ctx.from.id;
+      const username = ctx.from.username;
 
-      const session = getSession(ctx.from.id);
+      // ── Referral payload interception ──────────────────────────────────────
+      const payload = ctx.startPayload || '';
+      if (payload.startsWith('REF_')) {
+        const referrerId = Number(payload.replace('REF_', ''));
+
+        // Only process referral if this is a genuinely new user
+        const isNewUser = db.registerUser(userId, username);
+
+        if (isNewUser && referrerId && referrerId !== userId) {
+          db.addReferral(referrerId, userId);
+          const count = db.getReferralCount(referrerId);
+
+          // Reward: every 3 successful referrals, gift a free 1d key
+          if (count > 0 && count % 3 === 0) {
+            const oneDayCategory = db.getCategoryByValidity('1d');
+            if (oneDayCategory) {
+              const rewardKey = db.getAvailableKey(oneDayCategory.id);
+              if (rewardKey) {
+                db.markKeySold(rewardKey.id, referrerId);
+                try {
+                  await bot.telegram.sendMessage(
+                    referrerId,
+                    `🎉 <b>Referral Reward!</b>\n\nYou've successfully referred <b>${count}</b> friends — here is your free <b>1-Day</b> license key:\n\n<code>${rewardKey.key_string}</code>\n\nKeep sharing and earn more free keys!`,
+                    { parse_mode: 'HTML', ...mainMenuKeyboard() }
+                  );
+                } catch (err) {
+                  console.error('Failed to send referral reward:', err.message);
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // Normal start — upsert (update username if changed)
+        db.upsertUser(userId, username);
+      }
+
+      const session = getSession(userId);
 
       // Urgency gate: block navigation if special offer is pending
       if (session.state === USER_STATES.SPECIAL_OFFER_PENDING) {
@@ -211,9 +250,9 @@ function registerUserHandlers(bot) {
         return ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
       }
 
-      safeClearSession(ctx.from.id);
+      safeClearSession(userId);
 
-      const isMember = await checkGroupMembership(ctx, ctx.from.id);
+      const isMember = await checkGroupMembership(ctx, userId);
       if (!isMember) {
         return sendGatekeeperPrompt(ctx);
       }
@@ -484,6 +523,41 @@ function registerUserHandlers(bot) {
         `🎫 <b>Raise a Ticket</b>\n\nPlease type your request or issue in a single message below. It will be forwarded directly to our admin team.`,
         { parse_mode: 'HTML', ...keyboard }
       );
+    }
+  });
+
+  // ─── Refer & Earn ─────────────────────────────────────────────────────────
+
+  bot.action('menu:referral', async (ctx) => {
+    await ctx.answerCbQuery();
+    db.upsertUser(ctx.from.id, ctx.from.username);
+
+    const count = db.getReferralCount(ctx.from.id);
+    const botUsername = ctx.botInfo?.username || 'freeflowkeybot';
+    const referralLink = `https://t.me/${botUsername}?start=REF_${ctx.from.id}`;
+
+    const nextReward = 3 - (count % 3);
+    const progressText = count % 3 === 0 && count > 0
+      ? `🎉 You just hit a milestone! Keep going for more rewards.`
+      : `🔜 <b>${nextReward} more invite${nextReward === 1 ? '' : 's'}</b> to earn your next free key!`;
+
+    const text =
+      `🎁 <b>Refer & Earn</b>\n\n` +
+      `Invite 3 friends to get a <b>Free 1-Day Premium Key!</b>\n\n` +
+      `📊 You currently have <b>${count}</b> successful invite${count === 1 ? '' : 's'}.\n` +
+      `${progressText}\n\n` +
+      `👇 <b>Your unique referral link:</b>\n<code>${referralLink}</code>\n\n` +
+      `Share this link and earn a free key for every 3 people who join through you!`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url('📤 Share Link', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join Freeflow and get a free trial key!')}`)],
+      [Markup.button.callback('« Back to Menu', 'menu:main')],
+    ]);
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
     }
   });
 

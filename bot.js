@@ -2,7 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { Telegraf } = require('telegraf');
 const { telegrafThrottler } = require('telegraf-throttler');
-const fs = require('fs');
+const ExcelJS = require('exceljs');
 const { BOT_TOKEN, ADMIN_CHAT_ID, DB_PATH } = require('./config');
 const { initDatabase } = require('./database');
 const db = require('./database');
@@ -10,6 +10,9 @@ const { registerAdminHandlers } = require('./handlers/admin');
 const { registerUserHandlers } = require('./handlers/user');
 const { extractUtr, extractAmount } = require('./utils/regex');
 const { notifyTransactionCaptured } = require('./utils/notifications');
+
+// Dedicated logs channel for automated alerts (payment, delivery, UTR failures)
+const LOGS_CHAT_ID = process.env.LOGS_CHAT_ID || ADMIN_CHAT_ID;
 
 // Initialize database
 initDatabase();
@@ -34,10 +37,68 @@ bot.catch((err, ctx) => {
 registerAdminHandlers(bot);
 registerUserHandlers(bot);
 
+// ─── /getdata — Admin Excel Export ────────────────────────────────────────────
+
+bot.command('getdata', async (ctx) => {
+  if (ctx.chat?.type !== 'private') return;
+  if (ctx.from.id !== Number(ADMIN_CHAT_ID)) {
+    return ctx.reply('⛔ Unauthorized.');
+  }
+
+  try {
+    await ctx.reply('⏳ Generating sales data export...');
+
+    const rows = db.getSalesData();
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Freeflow Bot';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet('Sales Data');
+
+    sheet.columns = [
+      { header: 'Username',     key: 'username',  width: 22 },
+      { header: 'User ID',      key: 'user_id',   width: 15 },
+      { header: 'Key Bought',   key: 'key_string', width: 38 },
+      { header: 'Plan',         key: 'category',  width: 16 },
+      { header: 'Date Claimed', key: 'sold_at',   width: 22 },
+    ];
+
+    // Style header row
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = {
+      type: 'pattern', pattern: 'solid',
+      fgColor: { argb: 'FF2B579A' },
+    };
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+    for (const row of rows) {
+      sheet.addRow({
+        username:   row.username ? `@${row.username}` : 'N/A',
+        user_id:    row.user_id,
+        key_string: row.key_string,
+        category:   row.category,
+        sold_at:    row.sold_at,
+      });
+    }
+
+    // Write to buffer and send — no temp file needed, no disk leak
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    await ctx.replyWithDocument(
+      { source: Buffer.from(buffer), filename: 'Freeflow_Sales_Data.xlsx' },
+      { caption: `📊 <b>Sales Export</b>\n\n${rows.length} records exported.`, parse_mode: 'HTML' }
+    );
+  } catch (err) {
+    console.error('getdata command error:', err);
+    await ctx.reply(`❌ Failed to generate export: ${err.message}`);
+  }
+});
+
 // Launch Telegraf Bot
 bot.launch().then(() => {
   console.log('✅ License bot is running...');
-  console.log('Bot: @freeflowkeybot | Admin chat:', ADMIN_CHAT_ID);
+  console.log(`Bot: @freeflowkeybot | Admin: ${ADMIN_CHAT_ID} | Logs: ${LOGS_CHAT_ID}`);
 });
 
 // Express Webhook Server for MacroDroid / Bank SMS
@@ -82,26 +143,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Webhook HTTP server listening on port ${PORT}`);
 });
-
-// 24-Hour Off-Site Database Backup to Admin Chat
-const BACKUP_INTERVAL = 24 * 60 * 60 * 1000;
-setInterval(async () => {
-  try {
-    if (fs.existsSync(DB_PATH)) {
-      await bot.telegram.sendDocument(
-        ADMIN_CHAT_ID,
-        {
-          source: DB_PATH,
-          filename: `bot-backup-${new Date().toISOString().slice(0, 10)}.db`,
-        },
-        { caption: '📦 <b>Daily Database Backup</b>', parse_mode: 'HTML' }
-      );
-      console.log('✅ Daily DB backup sent to admin chat');
-    }
-  } catch (err) {
-    console.error('Failed to send daily DB backup:', err.message);
-  }
-}, BACKUP_INTERVAL);
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));

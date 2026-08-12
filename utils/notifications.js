@@ -1,14 +1,18 @@
 const { Markup } = require('telegraf');
 const { ADMIN_CHAT_ID, SUPPORT_HANDLE } = require('../config');
 
+// Dedicated logs channel: if LOGS_CHAT_ID is set, automated alerts go there.
+// Interactive admin workflows always stay on ADMIN_CHAT_ID.
+const LOGS_CHAT_ID = process.env.LOGS_CHAT_ID || ADMIN_CHAT_ID;
+
 async function notifyAdmin(bot, message, extra = {}) {
   try {
-    await bot.telegram.sendMessage(ADMIN_CHAT_ID, message, {
+    await bot.telegram.sendMessage(LOGS_CHAT_ID, message, {
       parse_mode: 'HTML',
       ...extra,
     });
   } catch (err) {
-    console.error('Failed to send admin notification:', err.message);
+    console.error('Failed to send log notification:', err.message);
   }
 }
 
@@ -59,4 +63,5 @@ module.exports = {
   notifyUtrFailed,
   notifyTransactionCaptured,
   contactAdminKeyboard,
+  LOGS_CHAT_ID,
 };

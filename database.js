@@ -70,17 +70,33 @@ function initDatabase() {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS Referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_id INTEGER NOT NULL,
+      referred_user_id INTEGER NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes')),
+      FOREIGN KEY (referrer_id) REFERENCES Users(user_id),
+      FOREIGN KEY (referred_user_id) REFERENCES Users(user_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_keys_category_status ON Keys(category_id, status);
     CREATE INDEX IF NOT EXISTS idx_keys_sold_to ON Keys(sold_to);
+    CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON Referrals(referrer_id);
   `);
 
   // Safely alter table to add reservation columns if upgrading existing database
+  try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_by INTEGER;'); } catch {}
+  try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_until TEXT;'); } catch {}
+  // Safely add Referrals table for existing DBs
   try {
-    db.exec('ALTER TABLE Keys ADD COLUMN reserved_by INTEGER;');
+    db.exec(`CREATE TABLE IF NOT EXISTS Referrals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_id INTEGER NOT NULL,
+      referred_user_id INTEGER NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
+    );`);
   } catch {}
-  try {
-    db.exec('ALTER TABLE Keys ADD COLUMN reserved_until TEXT;');
-  } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON Referrals(referrer_id);'); } catch {}
 
   return db;
 }
@@ -102,6 +118,20 @@ function upsertUser(userId, username) {
       ON CONFLICT(user_id) DO UPDATE SET username = excluded.username
     `)
     .run(userId, username || null);
+}
+
+/**
+ * Register a brand-new user (INSERT only, no update on conflict).
+ * Returns true if the user was newly inserted, false if they already existed.
+ */
+function registerUser(userId, username) {
+  const result = getDb()
+    .prepare(`
+      INSERT OR IGNORE INTO Users (user_id, username)
+      VALUES (?, ?)
+    `)
+    .run(userId, username || null);
+  return result.changes > 0; // true = new user
 }
 
 function getUser(userId) {
@@ -399,10 +429,61 @@ function setSetting(key, value) {
     .run(key, value);
 }
 
+// ─── Referrals ───────────────────────────────────────────────────────────────
+
+/**
+ * Record that referrerId referred newUserId. Silently ignores duplicates
+ * (referred_user_id has a UNIQUE constraint so a user can only be referred once).
+ * Returns true if successfully recorded.
+ */
+function addReferral(referrerId, newUserId) {
+  const result = getDb()
+    .prepare(`
+      INSERT OR IGNORE INTO Referrals (referrer_id, referred_user_id)
+      VALUES (?, ?)
+    `)
+    .run(referrerId, newUserId);
+  return result.changes > 0;
+}
+
+/**
+ * Returns the total number of successful referrals for a given referrerId.
+ */
+function getReferralCount(referrerId) {
+  const row = getDb()
+    .prepare('SELECT COUNT(*) as count FROM Referrals WHERE referrer_id = ?')
+    .get(referrerId);
+  return row ? row.count : 0;
+}
+
+// ─── Sales Data Export ───────────────────────────────────────────────────────
+
+/**
+ * Returns all sold keys with buyer info for Excel export.
+ */
+function getSalesData() {
+  return getDb()
+    .prepare(`
+      SELECT
+        u.username      AS username,
+        u.user_id       AS user_id,
+        k.key_string    AS key_string,
+        c.validity_period AS category,
+        k.sold_at       AS sold_at
+      FROM Keys k
+      JOIN Users u ON u.user_id = k.sold_to
+      JOIN Categories c ON c.id = k.category_id
+      WHERE k.status = 'sold'
+      ORDER BY k.sold_at DESC
+    `)
+    .all();
+}
+
 module.exports = {
   initDatabase,
   getDb,
   upsertUser,
+  registerUser,
   getUser,
   getAllCategories,
   getCategoryById,
@@ -423,4 +504,7 @@ module.exports = {
   processPaymentClaim,
   getSetting,
   setSetting,
+  addReferral,
+  getReferralCount,
+  getSalesData,
 };
