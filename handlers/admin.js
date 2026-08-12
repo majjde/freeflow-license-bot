@@ -2,20 +2,7 @@ const { Markup } = require('telegraf');
 const db = require('../database');
 const fs = require('fs');
 const { ADMIN_CHAT_ID, VALIDITY_PERIODS, DB_PATH } = require('../config');
-const { getSession, setSession, clearSession } = require('../utils/session');
-
-const ADMIN_STATES = {
-  UPLOAD_KEYS: 'admin_upload_keys',
-  MANAGE_CATEGORY: 'admin_manage_category',
-  MANAGE_AMOUNT: 'admin_manage_amount',
-  MANAGE_UPI: 'admin_manage_upi',
-  MANAGE_MESSAGE: 'admin_manage_message',
-  MANAGE_QR: 'admin_manage_qr',
-  EDIT_SETTING_DOWNLOAD_MSG: 'admin_edit_setting_download_msg',
-  EDIT_SETTING_VIP_INFO: 'admin_edit_setting_vip_info',
-  EDIT_SETTING_USAGE: 'admin_edit_setting_usage',
-  UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
-};
+const { getSession, setSession, clearSession, ADMIN_STATES } = require('../utils/session');
 
 function isAdmin(ctx) {
   return ctx.from && ctx.chat && ctx.chat.type === 'private' && ctx.chat.id === ADMIN_CHAT_ID;
@@ -224,7 +211,6 @@ function registerAdminHandlers(bot) {
       `💰 Amount: ₹${category.amount}\n` +
       `📱 UPI ID: <code>${category.upi_id}</code>\n` +
       `💬 Message: ${category.custom_message || '(none)'}\n` +
-      `🖼 QR Code: ${category.qr_photo_file_id ? '✅ Set' : '❌ Not set'}\n` +
       `🔑 Available keys: ${available}`;
 
     await ctx.editMessageText(text, {
@@ -233,7 +219,6 @@ function registerAdminHandlers(bot) {
         [Markup.button.callback('💰 Set Amount', `admin_set_amount:${categoryId}`)],
         [Markup.button.callback('📱 Set UPI ID', `admin_set_upi:${categoryId}`)],
         [Markup.button.callback('💬 Set Message', `admin_set_message:${categoryId}`)],
-        [Markup.button.callback('🖼 Upload QR Code', `admin_set_qr:${categoryId}`)],
         [Markup.button.callback('🗑️ Delete Category', `admin_delete_cat:${categoryId}`)],
         [Markup.button.callback('« Back', 'admin:manage_categories')],
       ]),
@@ -290,7 +275,7 @@ function registerAdminHandlers(bot) {
     setSession(ctx.from.id, {
       state: ADMIN_STATES.MANAGE_CATEGORY,
       validityPeriod,
-      draft: { validityPeriod, amount: null, upiId: null, customMessage: '', qrPhotoFileId: null },
+      draft: { validityPeriod, amount: null, upiId: null, customMessage: '' },
     });
 
     await ctx.editMessageText(
@@ -334,16 +319,6 @@ function registerAdminHandlers(bot) {
     ]));
   });
 
-  bot.action(/^admin_set_qr:(\d+)$/, async (ctx) => {
-    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
-    await ctx.answerCbQuery();
-    const categoryId = Number(ctx.match[1]);
-    setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_QR, categoryId });
-    await ctx.editMessageText('Send the QR code as a photo:', Markup.inlineKeyboard([
-      [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
-    ]));
-  });
-
   // ─── Bot Settings & CMS ──────────────────────────────────────────────────
 
   bot.action('admin:settings', async (ctx) => {
@@ -356,40 +331,54 @@ function registerAdminHandlers(bot) {
     });
   });
 
-  bot.action(/^admin_edit_setting:(vip_info|usage|download_msg)$/, async (ctx) => {
+  // ─── Usage Guide (two-step: text then media) ───────────────────────────────
+
+  bot.action('admin_edit_setting:usage', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+
+    const currentVal = db.getSetting('usage_text', '(Not set)');
+    setSession(ctx.from.id, { state: ADMIN_STATES.EDIT_SETTING_USAGE_TEXT });
+
+    await ctx.editMessageText(
+      `✏️ <b>Edit Usage Guide — Step 1 of 2</b>\n\n` +
+        `Current text:\n<code>${currentVal}</code>\n\n` +
+        `Please send the new <b>HTML-formatted text</b> for the Usage Guide.\n\n` +
+        `Type /cancel to abort.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+      }
+    );
+  });
+
+  // ─── Other CMS settings (VIP Info, Download Msg) ─────────────────────────
+
+  bot.action(/^admin_edit_setting:(vip_info|download_msg)$/, async (ctx) => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
     await ctx.answerCbQuery();
 
     const key = ctx.match[1];
     const stateMap = {
       vip_info: ADMIN_STATES.EDIT_SETTING_VIP_INFO,
-      usage: ADMIN_STATES.EDIT_SETTING_USAGE,
       download_msg: ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG,
     };
     const titleMap = {
       vip_info: 'VIP Info',
-      usage: 'How to Use Guide',
       download_msg: 'Download Message',
     };
-    const settingKeyMap = {
-      vip_info: 'vip_info',
-      usage: 'usage',
-      download_msg: 'download_msg',
-    };
-
-    const settingKey = settingKeyMap[key] || key;
 
     setSession(ctx.from.id, {
       state: stateMap[key],
-      settingKey,
+      settingKey: key,
     });
 
-    const currentVal = db.getSetting(settingKey, '(Not set)');
+    const currentVal = db.getSetting(key, '(Not set)');
 
     await ctx.editMessageText(
       `✏️ <b>Edit ${titleMap[key]}</b>\n\n` +
         `Current content:\n<code>${currentVal}</code>\n\n` +
-        `Please send the new formatted text for this setting (HTML tags supported, e.g. <b>bold</b>, <code>code</code>, etc.).\n\n` +
+        `Please send the new formatted text (HTML tags supported, e.g. <b>bold</b>, <code>code</code>, etc.).\n\n` +
         `Type /cancel to abort.`,
       {
         parse_mode: 'HTML',
@@ -420,7 +409,7 @@ function registerAdminHandlers(bot) {
     );
   });
 
-  // ─── Admin text / document / photo handlers ────────────────────────────────
+  // ─── Admin text / document / photo / video handlers ───────────────────────
 
   bot.on('document', async (ctx, next) => {
     if (!isAdmin(ctx)) return next();
@@ -476,61 +465,51 @@ function registerAdminHandlers(bot) {
       return;
     }
 
+    // Handle Usage Media upload (document = PDF or other file)
+    if (session.state === ADMIN_STATES.EDIT_SETTING_USAGE_MEDIA) {
+      try {
+        const doc = ctx.message.document;
+        db.setSetting('usage_media_file_id', doc.file_id);
+        db.setSetting('usage_media_type', 'document');
+        clearSession(ctx.from.id);
+        await ctx.reply(
+          '✅ <b>Usage Guide Media Updated!</b>\n\nThe document will be sent along with the usage guide text.',
+          { parse_mode: 'HTML', ...settingsSubmenuKeyboard() }
+        );
+      } catch (err) {
+        console.error('Usage media upload error:', err);
+        await ctx.reply('Failed to save media. Please try again.');
+      }
+      return;
+    }
+
     return next();
   });
 
-  bot.on('photo', async (ctx, next) => {
+  bot.on('video', async (ctx, next) => {
     if (!isAdmin(ctx)) return next();
 
     const session = getSession(ctx.from.id);
-    if (session.state === ADMIN_STATES.MANAGE_QR && session.categoryId) {
-      const photos = ctx.message.photo;
-      const fileId = photos[photos.length - 1].file_id;
-      db.updateCategoryQr(session.categoryId, fileId);
-      clearSession(ctx.from.id);
-      await ctx.reply('✅ QR code updated.', Markup.inlineKeyboard([
-        [Markup.button.callback('« Back to Category', `admin_manage_cat:${session.categoryId}`)],
-      ]));
-      return;
-    }
 
-    if (session.state === ADMIN_STATES.MANAGE_QR && session.draft) {
-      const photos = ctx.message.photo;
-      session.draft.qrPhotoFileId = photos[photos.length - 1].file_id;
-      finalizeNewCategory(ctx, session);
+    if (session.state === ADMIN_STATES.EDIT_SETTING_USAGE_MEDIA) {
+      try {
+        const video = ctx.message.video;
+        db.setSetting('usage_media_file_id', video.file_id);
+        db.setSetting('usage_media_type', 'video');
+        clearSession(ctx.from.id);
+        await ctx.reply(
+          '✅ <b>Usage Guide Video Updated!</b>\n\nThe video will be sent along with the usage guide text.',
+          { parse_mode: 'HTML', ...settingsSubmenuKeyboard() }
+        );
+      } catch (err) {
+        console.error('Usage video upload error:', err);
+        await ctx.reply('Failed to save video. Please try again.');
+      }
       return;
     }
 
     return next();
   });
-
-  async function finalizeNewCategory(ctx, session) {
-    const { draft } = session;
-    if (!draft.amount || !draft.upiId) {
-      return ctx.reply('Missing amount or UPI ID. Please start again from Manage Categories.');
-    }
-
-    const category = db.upsertCategory({
-      validityPeriod: draft.validityPeriod,
-      amount: draft.amount,
-      upiId: draft.upiId,
-      customMessage: draft.customMessage,
-      qrPhotoFileId: draft.qrPhotoFileId,
-    });
-
-    clearSession(ctx.from.id);
-    await ctx.reply(
-      `✅ Category <b>${category.validity_period}</b> saved!\n` +
-        `Amount: ₹${category.amount}\nUPI: <code>${category.upi_id}</code>`,
-      {
-        parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('View Category', `admin_manage_cat:${category.id}`)],
-          [Markup.button.callback('Admin Panel', 'admin:panel')],
-        ]),
-      }
-    );
-  }
 
   bot.on('text', async (ctx, next) => {
     if (!isAdmin(ctx)) return next();
@@ -540,10 +519,36 @@ function registerAdminHandlers(bot) {
     const text = ctx.message.text.trim();
 
     try {
-      // Dynamic CMS text setting update
+      // ─── Usage Guide: Step 1 — text ─────────────────────────────────────
+      if (session.state === ADMIN_STATES.EDIT_SETTING_USAGE_TEXT) {
+        db.setSetting('usage_text', ctx.message.text);
+        setSession(ctx.from.id, { state: ADMIN_STATES.EDIT_SETTING_USAGE_MEDIA });
+
+        return ctx.reply(
+          `✅ <b>Usage text saved!</b>\n\n` +
+            `<b>Step 2 of 2:</b> Send a <b>Video</b> or <b>PDF/Document</b> for the usage guide, or type <code>skip</code> to keep text only.`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+          }
+        );
+      }
+
+      // ─── Usage Guide: Step 2 — skip media ───────────────────────────────
+      if (session.state === ADMIN_STATES.EDIT_SETTING_USAGE_MEDIA && text.toLowerCase() === 'skip') {
+        db.setSetting('usage_media_file_id', '');
+        db.setSetting('usage_media_type', '');
+        clearSession(ctx.from.id);
+
+        return ctx.reply(
+          '✅ <b>Usage Guide Updated!</b>\n\nNo media attached — text only mode.',
+          { parse_mode: 'HTML', ...settingsSubmenuKeyboard() }
+        );
+      }
+
+      // ─── VIP Info / Download Msg CMS ────────────────────────────────────
       if (
         session.state === ADMIN_STATES.EDIT_SETTING_VIP_INFO ||
-        session.state === ADMIN_STATES.EDIT_SETTING_USAGE ||
         session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG
       ) {
         if (!session.settingKey) {
@@ -632,7 +637,7 @@ function registerAdminHandlers(bot) {
         return ctx.reply('Enter a short custom message for buyers (or send - to skip):');
       }
 
-      // New category: custom message
+      // New category: custom message → finalize immediately (no QR step)
       if (session.state === ADMIN_STATES.MANAGE_MESSAGE) {
         if (session.editing && session.categoryId) {
           const cat = db.getCategoryById(session.categoryId);
@@ -650,12 +655,7 @@ function registerAdminHandlers(bot) {
         }
 
         session.draft.customMessage = text === '-' ? '' : text;
-        setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_QR, draft: session.draft });
-        return ctx.reply('Send the QR code photo for this category (or send - to skip):');
-      }
-
-      if (session.state === ADMIN_STATES.MANAGE_QR && session.draft && text === '-') {
-        finalizeNewCategory(ctx, session);
+        await finalizeNewCategory(ctx, session);
         return;
       }
     } catch (err) {
@@ -667,6 +667,35 @@ function registerAdminHandlers(bot) {
 
     return next();
   });
+
+  async function finalizeNewCategory(ctx, session) {
+    const { draft } = session;
+    if (!draft.amount || !draft.upiId) {
+      return ctx.reply('Missing amount or UPI ID. Please start again from Manage Categories.');
+    }
+
+    const category = db.upsertCategory({
+      validityPeriod: draft.validityPeriod,
+      amount: draft.amount,
+      upiId: draft.upiId,
+      customMessage: draft.customMessage,
+      qrPhotoFileId: null,
+    });
+
+    clearSession(ctx.from.id);
+    await ctx.reply(
+      `✅ Category <b>${category.validity_period}</b> saved!\n` +
+        `Amount: ₹${category.amount}\nUPI: <code>${category.upi_id}</code>\n\n` +
+        `QR codes are now generated dynamically at checkout.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('View Category', `admin_manage_cat:${category.id}`)],
+          [Markup.button.callback('Admin Panel', 'admin:panel')],
+        ]),
+      }
+    );
+  }
 
   bot.command('cancel', async (ctx) => {
     if (!isAdmin(ctx)) return;

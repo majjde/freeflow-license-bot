@@ -12,11 +12,16 @@ const ADMIN_STATES = {
   MANAGE_AMOUNT: 'admin_manage_amount',
   MANAGE_UPI: 'admin_manage_upi',
   MANAGE_MESSAGE: 'admin_manage_message',
-  MANAGE_QR: 'admin_manage_qr',
   EDIT_SETTING_DOWNLOAD_MSG: 'admin_edit_setting_download_msg',
   EDIT_SETTING_VIP_INFO: 'admin_edit_setting_vip_info',
-  EDIT_SETTING_USAGE: 'admin_edit_setting_usage',
+  EDIT_SETTING_USAGE_TEXT: 'admin_edit_setting_usage_text',
+  EDIT_SETTING_USAGE_MEDIA: 'admin_edit_setting_usage_media',
   UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
+};
+
+const USER_STATES = {
+  AWAITING_UTR: 'user_awaiting_utr',
+  SPECIAL_OFFER_PENDING: 'user_special_offer_pending',
 };
 
 function getSession(id) {
@@ -57,4 +62,5 @@ module.exports = {
   clearSession,
   hasSession,
   ADMIN_STATES,
+  USER_STATES,
 };

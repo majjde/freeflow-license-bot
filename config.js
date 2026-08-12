@@ -21,6 +21,8 @@ module.exports = {
   DISCUSSION_GROUP_LINK: process.env.DISCUSSION_GROUP_LINK,
   VIP_GROUP_ID: process.env.VIP_GROUP_ID,
   SUPPORT_HANDLE: process.env.SUPPORT_HANDLE || 'admin',
+  UPI_ID: process.env.UPI_ID,
+  MERCHANT_NAME: process.env.MERCHANT_NAME || 'Freeflow',
   DB_PATH: process.env.DB_PATH || (process.env.RAILWAY_ENVIRONMENT ? '/data/bot.db' : './data/bot.db'),
   VALIDITY_PERIODS: ['15m', '1d', '3d', '7d', '15d', '30d', 'lifetime', 'vip'],
   STATIC_GUIDES: {
