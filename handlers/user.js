@@ -225,6 +225,8 @@ function registerUserHandlers(bot) {
               const rewardKey = db.getAvailableKey(oneDayCategory.id);
               if (rewardKey) {
                 db.markKeySold(rewardKey.id, referrerId);
+                // Notify logs channel about referral reward delivery
+                await notifyKeyDelivered(bot, { id: referrerId, username: null }, rewardKey.key_string, oneDayCategory);
                 try {
                   await bot.telegram.sendMessage(
                     referrerId,
