@@ -28,12 +28,12 @@ function validityLabel(period) {
 
 function mainMenuKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🛒 Buy Key', 'menu:buy')],
-    [Markup.button.callback('🚀 Learn website creation with AI', 'menu:vip')],
-    [Markup.button.callback('🔑 My Keys', 'menu:mykeys')],
-    [Markup.button.callback('🎁 Get Free Key', 'menu:free_key')],
-    [Markup.button.callback('💡 How to Use', 'menu:usage')],
-    [Markup.button.callback('💬 Support', 'menu:support')],
+    [Markup.button.callback('🎁 Get free key', 'menu:free_key')],
+    [Markup.button.callback('🛒 Buy key', 'menu:buy')],
+    [Markup.button.callback('🔑 My keys', 'menu:my_keys')],
+    [Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')],
+    [Markup.button.callback('📖 How to use', 'menu:usage')],
+    [Markup.button.callback('🎫 Raise a ticket', 'menu:ticket')],
   ]);
 }
 
@@ -394,16 +394,96 @@ function registerUserHandlers(bot) {
     }
   });
 
-  bot.action('menu:vip_info', async (ctx) => {
+  // ─── My Keys (alias supports both action names) ───────────────────────────
+
+  bot.action(['menu:my_keys', 'menu:mykeys'], async (ctx) => {
     await ctx.answerCbQuery();
-    const text = db.getSetting('vip_info', 'VIP info coming soon.');
+    db.upsertUser(ctx.from.id, ctx.from.username);
+
+    const keys = db.getUserKeys(ctx.from.id);
+    let text;
+
+    if (keys.length === 0) {
+      text = '🔑 You have no purchased keys yet.\n\nTap "Buy key" to get started.';
+    } else {
+      const lines = keys.map(
+        (k, i) =>
+          `${i + 1}. <code>${k.key_string}</code>\n   Plan: ${validityLabel(k.validity_period)} | ₹${k.amount}\n   Purchased: ${k.sold_at}`
+      );
+      text = `🔑 <b>Your License Keys</b>\n\n${lines.join('\n\n')}`;
+    }
+
     const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Back to Menu', 'menu:main')],
+    ]);
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
+    } catch {
+      await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+    }
+  });
+
+  // ─── Learn AI (placeholder) ───────────────────────────────────────────────
+
+  bot.action('menu:learn_ai', async (ctx) => {
+    await ctx.answerCbQuery();
+    const text = db.getSetting(
+      'vip_info',
+      '🧠 <b>Learn and Master AI</b>\n\nAI Mastery resources coming soon! Stay tuned.'
+    );
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('Get access', 'menu:vip_checkout')],
       [Markup.button.callback('« Back to Menu', 'menu:main')],
     ]);
     try {
       await ctx.editMessageText(text, { parse_mode: 'HTML', ...keyboard });
     } catch {
       await ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
+    }
+  });
+
+  // ─── Raise a Ticket ───────────────────────────────────────────────────────
+
+  bot.action('menu:ticket', async (ctx) => {
+    await ctx.answerCbQuery();
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_TICKET_MESSAGE });
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Cancel', 'menu:main')],
+    ]);
+
+    try {
+      await ctx.editMessageText(
+        `🎫 <b>Raise a Ticket</b>\n\nPlease type your request or issue in a single message below. It will be forwarded directly to our admin team.`,
+        { parse_mode: 'HTML', ...keyboard }
+      );
+    } catch {
+      await ctx.reply(
+        `🎫 <b>Raise a Ticket</b>\n\nPlease type your request or issue in a single message below. It will be forwarded directly to our admin team.`,
+        { parse_mode: 'HTML', ...keyboard }
+      );
+    }
+  });
+
+  // ─── Support (legacy alias) ────────────────────────────────────────────────
+
+  bot.action('menu:support', async (ctx) => {
+    await ctx.answerCbQuery();
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_TICKET_MESSAGE });
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Cancel', 'menu:main')],
+    ]);
+    try {
+      await ctx.editMessageText(
+        `🎫 <b>Raise a Ticket</b>\n\nPlease type your request or issue in a single message below. It will be forwarded directly to our admin team.`,
+        { parse_mode: 'HTML', ...keyboard }
+      );
+    } catch {
+      await ctx.reply(
+        `🎫 <b>Raise a Ticket</b>\n\nPlease type your request or issue in a single message below. It will be forwarded directly to our admin team.`,
+        { parse_mode: 'HTML', ...keyboard }
+      );
     }
   });
 
@@ -730,10 +810,10 @@ function registerUserHandlers(bot) {
     await notifyPaymentAttempt(bot, ctx.from, category);
 
     const checkoutCaption = isDiscounted
-      ? `🛒 <b>Special Offer Checkout!</b>\n\nOriginal Price: ₹${category.amount}\n<b>Your Price: ₹${finalPrice}</b>\n\n🔒 <b>Key Reserved for 10 Minutes!</b>\n\nScan the QR code below to pay.\n\n💬 <b>Reply with your 12-digit UTR/RRN number once paid.</b>`
-      : `💳 <b>${validityLabel(category.validity_period)} License</b>\n\n💰 Amount: <b>₹${finalPrice}</b>\n\n` +
+      ? `🛒 <b>Special Offer Checkout!</b>\n\nOriginal Price: ₹${category.amount}\n<b>Your Price: ₹${finalPrice}</b>\n\nPlease scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`
+      : `🛒 <b>Checkout</b>\n\nPrice: ₹${finalPrice}\n\n` +
         (category.custom_message ? `${category.custom_message}\n\n` : '') +
-        `🔒 <b>Key Reserved for 10 Minutes!</b>\nScan the QR code below to pay.\n\n💬 <b>Reply with your 12-digit UTR/RRN number once paid.</b>`;
+        `Please scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`;
 
     try {
       const qrBuffer = await generateUpiQr(finalPrice);
@@ -758,14 +838,14 @@ function registerUserHandlers(bot) {
         try {
           await bot.telegram.sendMessage(
             userId,
-            `⏱️ <b>Reservation Expired</b>\n\nYour 10-minute key reservation for <b>${validityLabel(category.validity_period)}</b> has expired.\n\nIf you still wish to purchase, please select a plan from the menu.`,
+            `⏳ <b>Payment Window Expired</b>\n\nYour 1-hour payment window has expired. Please restart the checkout process if you still wish to purchase.`,
             { parse_mode: 'HTML', ...mainMenuKeyboard() }
           );
         } catch (err) {
           console.error('Failed to send reservation expiry message:', err.message);
         }
       }
-    }, 10 * 60 * 1000);
+    }, 60 * 60 * 1000); // 1 hour
   }
 
   // ─── UTR verification ─────────────────────────────────────────────────────
@@ -780,6 +860,29 @@ function registerUserHandlers(bot) {
       const { text, keyboard } = specialOfferWarningMessage();
       return ctx.reply(text, { parse_mode: 'HTML', ...keyboard });
     }
+
+    // ─── Ticket forwarding ─────────────────────────────────────────────────
+    if (session.state === USER_STATES.AWAITING_TICKET_MESSAGE) {
+      clearSession(ctx.from.id);
+
+      const alertText =
+        `🚨 <b>New Support Ticket</b>\n` +
+        `<b>From:</b> @${ctx.from.username || 'NoUsername'} (ID: <code>${ctx.from.id}</code>)\n` +
+        `<b>Name:</b> ${ctx.from.first_name || ''}\n\n` +
+        `<b>Message:</b>\n${ctx.message.text}`;
+
+      try {
+        await bot.telegram.sendMessage(config.ADMIN_CHAT_ID, alertText, { parse_mode: 'HTML' });
+      } catch (err) {
+        console.error('Failed to forward ticket to admin:', err.message);
+      }
+
+      return ctx.reply(
+        '✅ Your ticket has been successfully submitted. Our admin will contact you shortly.',
+        { ...mainMenuKeyboard() }
+      );
+    }
+
 
     if (session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
       return next();

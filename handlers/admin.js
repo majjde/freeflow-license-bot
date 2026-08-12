@@ -651,32 +651,6 @@ function registerAdminHandlers(bot) {
 
         session.draft = session.draft || { validityPeriod: session.validityPeriod };
         session.draft.amount = amount;
-        setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_UPI, draft: session.draft });
-        return ctx.reply('Enter UPI ID (e.g. name@upi):');
-      }
-
-      // New/existing category: UPI
-      if (session.state === ADMIN_STATES.MANAGE_UPI) {
-        if (text.length < 3) {
-          return ctx.reply('Invalid UPI ID. Try again.');
-        }
-
-        if (session.editing && session.categoryId) {
-          const cat = db.getCategoryById(session.categoryId);
-          db.upsertCategory({
-            validityPeriod: cat.validity_period,
-            amount: cat.amount,
-            upiId: text,
-            customMessage: cat.custom_message,
-            qrPhotoFileId: cat.qr_photo_file_id,
-          });
-          clearSession(ctx.from.id);
-          return ctx.reply('✅ UPI ID updated.', Markup.inlineKeyboard([
-            [Markup.button.callback('« Back', `admin_manage_cat:${session.categoryId}`)],
-          ]));
-        }
-
-        session.draft.upiId = text;
         setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_MESSAGE, draft: session.draft });
         return ctx.reply('Enter a short custom message for buyers (or send - to skip):');
       }
@@ -714,14 +688,14 @@ function registerAdminHandlers(bot) {
 
   async function finalizeNewCategory(ctx, session) {
     const { draft } = session;
-    if (!draft.amount || !draft.upiId) {
-      return ctx.reply('Missing amount or UPI ID. Please start again from Manage Categories.');
+    if (!draft.amount) {
+      return ctx.reply('Missing price. Please start again from Manage Categories.');
     }
 
     const category = db.upsertCategory({
       validityPeriod: draft.validityPeriod,
       amount: draft.amount,
-      upiId: draft.upiId,
+      upiId: process.env.UPI_ID || 'global',
       customMessage: draft.customMessage,
       qrPhotoFileId: null,
     });
@@ -729,8 +703,8 @@ function registerAdminHandlers(bot) {
     clearSession(ctx.from.id);
     await ctx.reply(
       `✅ Category <b>${category.validity_period}</b> saved!\n` +
-        `Amount: ₹${category.amount}\nUPI: <code>${category.upi_id}</code>\n\n` +
-        `QR codes are now generated dynamically at checkout.`,
+        `Amount: ₹${category.amount}\n\n` +
+        `QR codes are generated dynamically at checkout using the global UPI ID.`,
       {
         parse_mode: 'HTML',
         ...Markup.inlineKeyboard([

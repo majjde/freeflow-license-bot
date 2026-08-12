@@ -228,7 +228,7 @@ function reserveAvailableKey(categoryId, userId) {
       return existing;
     }
 
-    // 3. Find an unreserved key and lock it for 10 minutes (IST)
+    // 3. Find an unreserved key and lock it for 60 minutes / 1 hour (IST)
     const keyToReserve = getDb()
       .prepare(`
         SELECT * FROM Keys
@@ -245,7 +245,7 @@ function reserveAvailableKey(categoryId, userId) {
     getDb()
       .prepare(`
         UPDATE Keys
-        SET reserved_by = ?, reserved_until = datetime('now', '+5 hours', '+30 minutes', '+10 minutes')
+        SET reserved_by = ?, reserved_until = datetime('now', '+5 hours', '+30 minutes', '+60 minutes')
         WHERE id = ?
       `)
       .run(userId, keyToReserve.id);

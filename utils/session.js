@@ -22,6 +22,7 @@ const ADMIN_STATES = {
 const USER_STATES = {
   AWAITING_UTR: 'user_awaiting_utr',
   SPECIAL_OFFER_PENDING: 'user_special_offer_pending',
+  AWAITING_TICKET_MESSAGE: 'user_awaiting_ticket_message',
 };
 
 function getSession(id) {
