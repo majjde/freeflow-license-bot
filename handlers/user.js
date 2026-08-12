@@ -31,6 +31,7 @@ function mainMenuKeyboard() {
     [Markup.button.callback('🎁 Get free key', 'menu:free_key')],
     [Markup.button.callback('🛒 Buy key', 'menu:buy')],
     [Markup.button.callback('🔑 My keys', 'menu:my_keys')],
+    [Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')],
     [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
     [Markup.button.callback('🎁 Refer & Earn', 'menu:referral')],
     [Markup.button.callback('📖 How to use', 'menu:usage')],
