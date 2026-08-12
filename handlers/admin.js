@@ -87,6 +87,50 @@ function registerAdminHandlers(bot) {
     });
   });
 
+  bot.command('clearkeys', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return;
+    if (!isAdmin(ctx)) return ctx.reply('⛔ Unauthorized.');
+
+    const total = db.getDb().prepare('SELECT COUNT(*) as count FROM Keys').get();
+
+    await ctx.reply(
+      `⚠️ <b>Clear All Keys</b>\n\n` +
+        `This will permanently delete <b>all ${total.count} keys</b> from the database.\n` +
+        `Categories and transactions will <b>not</b> be affected.\n\n` +
+        `Are you sure?`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('🗑️ Yes, delete all keys', 'admin_clearkeys:confirm')],
+          [Markup.button.callback('« Cancel', 'admin:panel')],
+        ]),
+      }
+    );
+  });
+
+  bot.action('admin_clearkeys:confirm', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+
+    try {
+      const result = db.getDb().exec('DELETE FROM Keys');
+      const deleted = db.getDb().prepare('SELECT changes() as n').get();
+
+      await ctx.editMessageText(
+        `✅ <b>All Keys Deleted!</b>\n\n` +
+          `The key inventory has been wiped. You can now upload fresh keys via:\n\n` +
+          `/admin → 📤 Upload Keys`,
+        {
+          parse_mode: 'HTML',
+          ...adminPanelKeyboard(),
+        }
+      );
+    } catch (err) {
+      console.error('clearkeys error:', err);
+      await ctx.reply('❌ Failed to delete keys: ' + err.message);
+    }
+  });
+
   bot.command('backup', async (ctx) => {
     if (ctx.chat?.type !== 'private') return;
     if (!isAdmin(ctx)) {
