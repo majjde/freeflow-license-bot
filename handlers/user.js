@@ -236,25 +236,19 @@ function registerUserHandlers(bot) {
           db.addReferral(referrerId, userId);
           const count = db.getReferralCount(referrerId);
 
-          // Reward: every 3 successful referrals, gift a free 1d key
+          // Reward: every 3 successful referrals, gift a 50% discount coupon bound to the user
           if (count > 0 && count % 3 === 0) {
-            const oneDayCategory = db.getCategoryByValidity('1d');
-            if (oneDayCategory) {
-              const rewardKey = db.getAvailableKey(oneDayCategory.id);
-              if (rewardKey) {
-                db.markKeySold(rewardKey.id, referrerId);
-                // Notify logs channel about referral reward delivery
-                await notifyKeyDelivered(bot, { id: referrerId, username: null }, rewardKey.key_string, oneDayCategory);
-                try {
-                  await bot.telegram.sendMessage(
-                    referrerId,
-                    `🎉 <b>Referral Reward!</b>\n\nYou've successfully referred <b>${count}</b> friends — here is your free <b>1-Day</b> license key:\n\n<code>${rewardKey.key_string}</code>\n\nKeep sharing and earn more free keys!`,
-                    { parse_mode: 'HTML', ...mainMenuKeyboard() }
-                  );
-                } catch (err) {
-                  console.error('Failed to send referral reward:', err.message);
-                }
-              }
+            const couponCode = `REF50-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+            db.createCoupon(couponCode, 50, referrerId);
+
+            try {
+              await bot.telegram.sendMessage(
+                referrerId,
+                `🎉 <b>Referral Reward!</b>\n\nYou've successfully referred <b>${count}</b> friends — here is your exclusive <b>50% OFF Coupon Code</b>:\n\n<code>${couponCode}</code>\n\nThis coupon is bound to your account and can be used on any purchase!`,
+                { parse_mode: 'HTML', ...mainMenuKeyboard() }
+              );
+            } catch (err) {
+              console.error('Failed to send referral reward:', err.message);
             }
           }
         }
@@ -854,7 +848,8 @@ function registerUserHandlers(bot) {
     setSession(ctx.from.id, { expectedAmount: finalPrice });
 
     // ── Dynamic QR Generation ───────────────────────────────────────────────
-    const cancelKeyboard = Markup.inlineKeyboard([
+    const checkoutKeyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🎟️ Apply Coupon', `apply_coupon:${categoryId}`)],
       [Markup.button.callback('« Cancel', 'menu:main')],
     ]);
 
@@ -875,7 +870,7 @@ function registerUserHandlers(bot) {
       const timerId = _startReservationTimer(bot, ctx.from.id, categoryId, category, session);
       setSession(ctx.from.id, { state: USER_STATES.AWAITING_UTR, categoryId, timerId });
       await notifyPaymentAttempt(bot, ctx.from, category);
-      return ctx.reply(fallbackCaption, { parse_mode: 'HTML', ...cancelKeyboard });
+      return ctx.reply(fallbackCaption, { parse_mode: 'HTML', ...checkoutKeyboard });
     }
 
     // Lock/reserve key for 10 minutes
@@ -914,15 +909,32 @@ function registerUserHandlers(bot) {
       const qrBuffer = await generateUpiQr(finalPrice);
       await ctx.replyWithPhoto(
         { source: qrBuffer },
-        { caption: checkoutCaption, parse_mode: 'HTML', ...cancelKeyboard }
+        { caption: checkoutCaption, parse_mode: 'HTML', ...checkoutKeyboard }
       );
     } catch (err) {
       console.error('QR generation error:', err);
       await ctx.reply(
         checkoutCaption + '\n\n⚠️ QR generation failed. Please contact support.',
-        { parse_mode: 'HTML', ...cancelKeyboard }
+        { parse_mode: 'HTML', ...checkoutKeyboard }
       );
     }
+  });
+
+  bot.action(/^apply_coupon:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const categoryId = Number(ctx.match[1]);
+    
+    const session = getSession(ctx.from.id);
+    if (session.state !== USER_STATES.AWAITING_UTR) {
+      return ctx.reply('Your checkout session has expired. Please try buying again.', mainMenuKeyboard());
+    }
+
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_COUPON, categoryId });
+
+    await ctx.reply(
+      '🎟️ <b>Apply Coupon</b>\n\nPlease enter your coupon code:',
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]) }
+    );
   });
 
   function _startReservationTimer(bot, userId, categoryId, category, session) {
@@ -979,6 +991,57 @@ function registerUserHandlers(bot) {
     }
 
 
+    // ─── Coupon Application ────────────────────────────────────────────────
+    if (session.state === USER_STATES.AWAITING_COUPON) {
+      const code = textInput.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+      const coupon = db.getCoupon(code);
+
+      if (!coupon) {
+        return ctx.reply('❌ Invalid coupon code. Please try again or tap Cancel.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+      }
+      if (coupon.is_used === 1) {
+        return ctx.reply('❌ This coupon has already been used.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+      }
+      if (coupon.bound_to && coupon.bound_to !== ctx.from.id) {
+        return ctx.reply('❌ This coupon is bound to another user and cannot be used by you.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+      }
+
+      const categoryId = session.categoryId;
+      const category = db.getCategoryById(categoryId);
+      
+      const discountPercent = coupon.discount_percent;
+      const finalPrice = Math.ceil(category.amount * (1 - discountPercent / 100));
+
+      setSession(ctx.from.id, { 
+        state: USER_STATES.AWAITING_UTR,
+        categoryId: categoryId,
+        expectedAmount: finalPrice,
+        appliedCoupon: code
+      });
+
+      const checkoutCaption = `🛒 <b>Checkout</b>\n\n` +
+        `Original Price: ₹${category.amount}\n` +
+        `Coupon Applied: <b>${code}</b> (-${discountPercent}%)\n` +
+        `<b>New Price: ₹${finalPrice}</b>\n\n` +
+        `Please scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`;
+
+      const checkoutKeyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('« Cancel', 'menu:main')],
+      ]);
+
+      try {
+        const qrBuffer = await generateUpiQr(finalPrice);
+        await ctx.replyWithPhoto(
+          { source: qrBuffer },
+          { caption: checkoutCaption, parse_mode: 'HTML', ...checkoutKeyboard }
+        );
+      } catch (err) {
+        console.error('QR generation error:', err);
+        await ctx.reply(checkoutCaption + '\n\n⚠️ QR generation failed. Please contact support.', { parse_mode: 'HTML', ...checkoutKeyboard });
+      }
+      return;
+    }
+
     if (session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
       return next();
     }
@@ -986,15 +1049,26 @@ function registerUserHandlers(bot) {
     const textInput = ctx.message.text ? ctx.message.text.trim() : '';
 
     // Intelligently extract 12-digit UTR from user input
-    const utrMatch = textInput.match(/\d{12}/);
-    if (!utrMatch) {
+    // First, look for a 12-digit number following "UPI", "UTR", or "Ref"
+    let utr = null;
+    const specificMatch = textInput.match(/(?:UPI|UTR|Ref\s*No|Reference)[\s:\-\(]*(\d{12})\b/i);
+    
+    if (specificMatch) {
+      utr = specificMatch[1];
+    } else {
+      // Fallback: find any standalone 12-digit number
+      const generalMatch = textInput.match(/\b(\d{12})\b/);
+      if (generalMatch) {
+        utr = generalMatch[1];
+      }
+    }
+
+    if (!utr) {
       return ctx.reply(
         "❌ I couldn't find a valid 12-digit UTR in your message.\n\nPlease reply with the correct 12-digit UTR/RRN number.\n\n💡 *Where to find it:* Look for a 12-digit number (often starting with 3 or 4) in your UPI app's payment confirmation screen or your bank SMS.",
         { parse_mode: 'Markdown' }
       );
     }
-
-    const utr = utrMatch[0];
 
     const category = db.getCategoryById(session.categoryId);
     if (!category) {
@@ -1006,6 +1080,7 @@ function registerUserHandlers(bot) {
 
     // Use captured expectedAmount (respects active discount)
     const expectedAmount = session.expectedAmount || category.amount;
+    const appliedCoupon = session.appliedCoupon;
 
     const result = db.processPaymentClaim({
       utr,
@@ -1020,6 +1095,11 @@ function registerUserHandlers(bot) {
     if (discountTimeoutId) clearTimeout(discountTimeoutId);
 
     if (result.ok) {
+      // Mark the coupon as used if one was applied
+      if (appliedCoupon) {
+        db.markCouponUsed(appliedCoupon, ctx.from.id);
+      }
+
       if (category.validity_period === 'vip') {
         let inviteText = '';
         try {

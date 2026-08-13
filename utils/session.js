@@ -17,12 +17,15 @@ const ADMIN_STATES = {
   EDIT_SETTING_USAGE_TEXT: 'admin_edit_setting_usage_text',
   EDIT_SETTING_USAGE_MEDIA: 'admin_edit_setting_usage_media',
   UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
+  CREATE_COUPON_CODE: 'admin_create_coupon_code',
+  CREATE_COUPON_PERCENT: 'admin_create_coupon_percent',
 };
 
 const USER_STATES = {
   AWAITING_UTR: 'user_awaiting_utr',
   SPECIAL_OFFER_PENDING: 'user_special_offer_pending',
   AWAITING_TICKET_MESSAGE: 'user_awaiting_ticket_message',
+  AWAITING_COUPON: 'user_awaiting_coupon',
 };
 
 function getSession(id) {

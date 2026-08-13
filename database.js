@@ -79,9 +79,22 @@ function initDatabase() {
       FOREIGN KEY (referred_user_id) REFERENCES Users(user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS Coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      discount_percent REAL NOT NULL,
+      is_used INTEGER DEFAULT 0,
+      used_by INTEGER,
+      bound_to INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes')),
+      FOREIGN KEY (used_by) REFERENCES Users(user_id),
+      FOREIGN KEY (bound_to) REFERENCES Users(user_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_keys_category_status ON Keys(category_id, status);
     CREATE INDEX IF NOT EXISTS idx_keys_sold_to ON Keys(sold_to);
     CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON Referrals(referrer_id);
+    CREATE INDEX IF NOT EXISTS idx_coupons_code ON Coupons(code);
   `);
 
   // Safely alter table to add reservation columns if upgrading existing database
@@ -97,6 +110,19 @@ function initDatabase() {
     );`);
   } catch {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON Referrals(referrer_id);'); } catch {}
+  // Safely add Coupons table for existing DBs
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS Coupons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      discount_percent REAL NOT NULL,
+      is_used INTEGER DEFAULT 0,
+      used_by INTEGER,
+      bound_to INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
+    );`);
+  } catch {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_coupons_code ON Coupons(code);'); } catch {}
 
   return db;
 }
@@ -456,6 +482,40 @@ function getReferralCount(referrerId) {
   return row ? row.count : 0;
 }
 
+// ─── Coupons ─────────────────────────────────────────────────────────────────
+
+function createCoupon(code, discount_percent, bound_to = null) {
+  try {
+    getDb()
+      .prepare(`
+        INSERT INTO Coupons (code, discount_percent, bound_to)
+        VALUES (?, ?, ?)
+      `)
+      .run(code.toUpperCase(), discount_percent, bound_to);
+    return true;
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE constraint failed')) {
+      return false; // Duplicate code
+    }
+    throw err;
+  }
+}
+
+function getCoupon(code) {
+  return getDb().prepare('SELECT * FROM Coupons WHERE code = ?').get(code.toUpperCase());
+}
+
+function markCouponUsed(code, userId) {
+  const result = getDb()
+    .prepare(`
+      UPDATE Coupons
+      SET is_used = 1, used_by = ?
+      WHERE code = ? AND is_used = 0
+    `)
+    .run(userId, code.toUpperCase());
+  return result.changes > 0;
+}
+
 // ─── Sales Data Export ───────────────────────────────────────────────────────
 
 /**
@@ -506,5 +566,8 @@ module.exports = {
   setSetting,
   addReferral,
   getReferralCount,
+  createCoupon,
+  getCoupon,
+  markCouponUsed,
   getSalesData,
 };

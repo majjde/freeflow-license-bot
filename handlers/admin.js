@@ -23,6 +23,7 @@ function settingsSubmenuKeyboard() {
     [Markup.button.callback('✏️ Edit Usage Guide', 'admin_edit_setting:usage')],
     [Markup.button.callback('✏️ Edit Download Msg', 'admin_edit_setting:download_msg')],
     [Markup.button.callback('📦 Upload Extension (.zip)', 'admin_upload_extension')],
+    [Markup.button.callback('🎟️ Manage Coupons', 'admin:manage_coupons')],
     [Markup.button.callback('👁️ Manage Menu Options', 'admin:manage_menu')],
     [Markup.button.callback('« Back', 'admin:panel')],
   ]);
@@ -499,6 +500,23 @@ function registerAdminHandlers(bot) {
     await ctx.answerCbQuery(`Menu option ${next === '1' ? 'enabled' : 'disabled'}`);
   });
 
+  bot.action('admin:manage_coupons', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+    
+    setSession(ctx.from.id, { state: ADMIN_STATES.CREATE_COUPON_CODE });
+    
+    await ctx.editMessageText(
+      `🎟️ <b>Create New Coupon</b>\n\n` +
+      `Please enter a unique alphanumeric code for the coupon (e.g., SALE50 or NEWYEAR):\n\n` +
+      `Type /cancel to abort.`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+      }
+    );
+  });
+
   // ─── Admin text / document / photo / video handlers ───────────────────────
 
   bot.on('document', async (ctx, next) => {
@@ -657,6 +675,48 @@ function registerAdminHandlers(bot) {
             ...settingsSubmenuKeyboard(),
           }
         );
+      }
+
+      // ─── Coupon Creation ────────────────────────────────────────────────
+      if (session.state === ADMIN_STATES.CREATE_COUPON_CODE) {
+        const code = text.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+        if (!code || code.length < 3) {
+          return ctx.reply('Invalid code. Please use alphanumeric characters (min 3 chars).');
+        }
+        
+        session.couponDraft = { code };
+        setSession(ctx.from.id, { state: ADMIN_STATES.CREATE_COUPON_PERCENT, couponDraft: session.couponDraft });
+        
+        return ctx.reply(
+          `✅ Code <b>${code}</b> accepted.\n\nNow, enter the discount percentage (e.g., 50 for 50% OFF):`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+          }
+        );
+      }
+      
+      if (session.state === ADMIN_STATES.CREATE_COUPON_PERCENT) {
+        const percent = parseFloat(text);
+        if (Number.isNaN(percent) || percent <= 0 || percent >= 100) {
+          return ctx.reply('Invalid percentage. Please enter a number between 1 and 99.');
+        }
+        
+        const code = session.couponDraft.code;
+        const success = db.createCoupon(code, percent);
+        clearSession(ctx.from.id);
+        
+        if (success) {
+          return ctx.reply(
+            `🎉 <b>Coupon Created Successfully!</b>\n\nCode: <code>${code}</code>\nDiscount: <b>${percent}%</b>\n\nThis coupon is now active and can be used once.`,
+            {
+              parse_mode: 'HTML',
+              ...settingsSubmenuKeyboard(),
+            }
+          );
+        } else {
+          return ctx.reply('❌ A coupon with this code already exists. Please try again with a different code.', settingsSubmenuKeyboard());
+        }
       }
 
       // Upload keys via text
