@@ -22,6 +22,7 @@ function settingsSubmenuKeyboard() {
     [Markup.button.callback('✏️ Edit VIP Info', 'admin_edit_setting:vip_info')],
     [Markup.button.callback('✏️ Edit Usage Guide', 'admin_edit_setting:usage')],
     [Markup.button.callback('✏️ Edit Download Msg', 'admin_edit_setting:download_msg')],
+    [Markup.button.callback('✏️ Edit Welcome Message', 'admin_edit_setting:welcome')],
     [Markup.button.callback('📦 Upload Extension (.zip)', 'admin_upload_extension')],
     [Markup.button.callback('🎟️ Manage Coupons', 'admin:manage_coupons')],
     [Markup.button.callback('👁️ Manage Menu Options', 'admin:manage_menu')],
@@ -425,7 +426,7 @@ function registerAdminHandlers(bot) {
 
   // ─── Other CMS settings (VIP Info, Download Msg) ─────────────────────────
 
-  bot.action(/^admin_edit_setting:(vip_info|download_msg)$/, async (ctx) => {
+  bot.action(/^admin_edit_setting:(vip_info|download_msg|welcome)$/, async (ctx) => {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
     await ctx.answerCbQuery();
 
@@ -433,10 +434,12 @@ function registerAdminHandlers(bot) {
     const stateMap = {
       vip_info: ADMIN_STATES.EDIT_SETTING_VIP_INFO,
       download_msg: ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG,
+      welcome: ADMIN_STATES.EDIT_SETTING_WELCOME_MESSAGE,
     };
     const titleMap = {
       vip_info: 'VIP Info',
       download_msg: 'Download Message',
+      welcome: 'Welcome Message',
     };
 
     setSession(ctx.from.id, {
@@ -704,10 +707,11 @@ function registerAdminHandlers(bot) {
         );
       }
 
-      // ─── VIP Info / Download Msg CMS ────────────────────────────────────
+      // ─── VIP Info / Download Msg / Welcome Msg CMS ────────────────────────────────────
       if (
         session.state === ADMIN_STATES.EDIT_SETTING_VIP_INFO ||
-        session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG
+        session.state === ADMIN_STATES.EDIT_SETTING_DOWNLOAD_MSG ||
+        session.state === ADMIN_STATES.EDIT_SETTING_WELCOME_MESSAGE
       ) {
         if (!session.settingKey) {
           clearSession(ctx.from.id);

@@ -31,7 +31,8 @@ function initDatabase() {
     CREATE TABLE IF NOT EXISTS Users (
       user_id INTEGER PRIMARY KEY,
       username TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes')),
+      received_abandoned_promo INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS Categories (
@@ -100,6 +101,7 @@ function initDatabase() {
   // Safely alter table to add reservation columns if upgrading existing database
   try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_by INTEGER;'); } catch {}
   try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_until TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE Users ADD COLUMN received_abandoned_promo INTEGER DEFAULT 0;'); } catch {}
   // Safely add Referrals table for existing DBs
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS Referrals (
@@ -162,6 +164,12 @@ function registerUser(userId, username) {
 
 function getUser(userId) {
   return getDb().prepare('SELECT * FROM Users WHERE user_id = ?').get(userId);
+}
+
+function markAbandonedPromoSent(userId) {
+  getDb()
+    .prepare('UPDATE Users SET received_abandoned_promo = 1 WHERE user_id = ?')
+    .run(userId);
 }
 
 // ─── Categories ──────────────────────────────────────────────────────────────
@@ -549,6 +557,7 @@ module.exports = {
   upsertUser,
   registerUser,
   getUser,
+  markAbandonedPromoSent,
   getAllCategories,
   getCategoryById,
   getCategoryByValidity,

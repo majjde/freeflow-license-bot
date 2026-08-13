@@ -19,6 +19,7 @@ const ADMIN_STATES = {
   UPLOAD_EXTENSION_FILE: 'admin_upload_extension_file',
   CREATE_COUPON_CODE: 'admin_create_coupon_code',
   CREATE_COUPON_PERCENT: 'admin_create_coupon_percent',
+  EDIT_SETTING_WELCOME_MESSAGE: 'admin_edit_setting_welcome_message',
 };
 
 const USER_STATES = {

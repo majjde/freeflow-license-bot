@@ -29,30 +29,27 @@ function validityLabel(period) {
 function mainMenuKeyboard() {
   const buttons = [];
   
-  if (db.getSetting('menu_free_key', '1') === '1') {
-    buttons.push([Markup.button.callback('🎁 Get free key', 'menu:free_key')]);
-  }
-  if (db.getSetting('menu_buy', '1') === '1') {
-    buttons.push([Markup.button.callback('🛒 Buy key', 'menu:buy')]);
-  }
-  if (db.getSetting('menu_my_keys', '1') === '1') {
-    buttons.push([Markup.button.callback('🔑 My keys', 'menu:my_keys')]);
-  }
-  if (db.getSetting('menu_learn_ai', '1') === '1') {
-    buttons.push([Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')]);
-  }
-  if (db.getSetting('menu_download', '1') === '1') {
-    buttons.push([Markup.button.callback('⬇️ Download Extension', 'menu:download')]);
-  }
-  if (db.getSetting('menu_referral', '1') === '1') {
-    buttons.push([Markup.button.callback('🎁 Refer and Save', 'menu:referral')]);
-  }
-  if (db.getSetting('menu_usage', '1') === '1') {
-    buttons.push([Markup.button.callback('📖 How to use', 'menu:usage')]);
-  }
-  if (db.getSetting('menu_ticket', '1') === '1') {
-    buttons.push([Markup.button.callback('🎫 Raise a ticket', 'menu:ticket')]);
-  }
+  // R1: Buy Keys | My Keys
+  const row1 = [];
+  if (db.getSetting('menu_buy', '1') === '1') row1.push(Markup.button.callback('🛒 Buy keys', 'menu:buy'));
+  if (db.getSetting('menu_my_keys', '1') === '1') row1.push(Markup.button.callback('🔑 My keys', 'menu:my_keys'));
+  if (row1.length > 0) buttons.push(row1);
+
+  // R2: Refer and save
+  const row2 = [];
+  if (db.getSetting('menu_referral', '1') === '1') row2.push(Markup.button.callback('🎁 Refer and save', 'menu:referral'));
+  if (row2.length > 0) buttons.push(row2);
+
+  // R3: How to use | Raise a ticket
+  const row3 = [];
+  if (db.getSetting('menu_usage', '1') === '1') row3.push(Markup.button.callback('📖 How to use', 'menu:usage'));
+  if (db.getSetting('menu_ticket', '1') === '1') row3.push(Markup.button.callback('🎫 Raise a ticket', 'menu:ticket'));
+  if (row3.length > 0) buttons.push(row3);
+
+  // Hidden buttons (append as new rows if enabled)
+  if (db.getSetting('menu_free_key', '1') === '1') buttons.push([Markup.button.callback('🎁 Get free key', 'menu:free_key')]);
+  if (db.getSetting('menu_learn_ai', '1') === '1') buttons.push([Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')]);
+  if (db.getSetting('menu_download', '1') === '1') buttons.push([Markup.button.callback('⬇️ Download Extension', 'menu:download')]);
 
   return Markup.inlineKeyboard(buttons);
 }
@@ -153,10 +150,8 @@ async function sendGatekeeperPrompt(ctx) {
 }
 
 async function showMainMenu(ctx) {
-  const text =
-    `👋 Welcome to the License Key Bot!\n\n` +
-    `Purchase a license for our browser extension, pay via UPI, and receive your key instantly after verification.\n\n` +
-    `Choose an option below:`;
+  const defaultText = `👋 Welcome to the License Key Bot!\n\nPurchase a license for our browser extension, pay via UPI, and receive your key instantly after verification.\n\nChoose an option below:`;
+  const text = db.getSetting('welcome_message', defaultText);
 
   try {
     await ctx.editMessageText(text, { parse_mode: 'HTML', ...mainMenuKeyboard() });
@@ -166,9 +161,8 @@ async function showMainMenu(ctx) {
 }
 
 async function sendMainMenu(ctx) {
-  const text =
-    `👋 Welcome to the License Key Bot!\n\n` +
-    `Choose an option below:`;
+  const defaultText = `👋 Welcome to the License Key Bot!\n\nChoose an option below:`;
+  const text = db.getSetting('welcome_message', defaultText);
   await ctx.reply(text, { parse_mode: 'HTML', ...mainMenuKeyboard() });
 }
 
@@ -273,6 +267,7 @@ function registerUserHandlers(bot) {
       }
 
       await showMainMenu(ctx);
+      checkAbandonedCartPromo(bot, userId);
     } catch (err) {
       console.error('Start command error:', err);
       await ctx.reply('Welcome! Please try again in a moment.');
@@ -387,6 +382,7 @@ function registerUserHandlers(bot) {
     if (isMember) {
       await ctx.answerCbQuery('✅ Welcome!');
       await showMainMenu(ctx);
+      checkAbandonedCartPromo(bot, ctx.from.id);
     } else {
       await ctx.answerCbQuery('❌ You have not joined the group yet!', { show_alert: true });
     }
@@ -849,6 +845,7 @@ function registerUserHandlers(bot) {
 
     // ── Dynamic QR Generation ───────────────────────────────────────────────
     const checkoutKeyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📥 Download QR Code', 'download_qr')],
       [Markup.button.callback('🎟️ Apply Coupon', `apply_coupon:${categoryId}`)],
       [Markup.button.callback('« Cancel', 'menu:main')],
     ]);
@@ -1027,6 +1024,7 @@ function registerUserHandlers(bot) {
         `Please scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`;
 
       const checkoutKeyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('📥 Download QR Code', 'download_qr')],
         [Markup.button.callback('« Cancel', 'menu:main')],
       ]);
 
@@ -1162,6 +1160,18 @@ function registerUserHandlers(bot) {
         ...deliveryKeyboard(),
       });
 
+      const extensionFileId = db.getSetting('extension_file_id', null);
+      if (extensionFileId) {
+        try {
+          await ctx.replyWithDocument(extensionFileId, {
+            caption: '📥 Here is your extension file. Enjoy!',
+            parse_mode: 'HTML'
+          });
+        } catch (err) {
+          console.error('Failed to auto-send extension document:', err);
+        }
+      }
+
       if (PUBLIC_GROUP_ID) {
         try {
           const rawName = ctx.from.username || ctx.from.first_name || 'User';
@@ -1198,6 +1208,26 @@ function registerUserHandlers(bot) {
     );
   });
 
+  bot.action('download_qr', async (ctx) => {
+    await ctx.answerCbQuery();
+    const session = getSession(ctx.from.id);
+    
+    if (session.state !== USER_STATES.AWAITING_UTR || !session.expectedAmount) {
+      return ctx.reply('Your checkout session has expired. Please try buying again.', mainMenuKeyboard());
+    }
+
+    try {
+      const qrBuffer = await generateUpiQr(session.expectedAmount);
+      await ctx.replyWithDocument(
+        { source: qrBuffer, filename: 'Freeflow_UPI_Payment.png' },
+        { caption: 'Here is your QR code file for easy scanning!' }
+      );
+    } catch (err) {
+      console.error('Download QR error:', err);
+      await ctx.reply('⚠️ Failed to generate QR code file. Please contact support.');
+    }
+  });
+
   bot.command('cancel', async (ctx) => {
     if (ctx.chat?.type !== 'private') return;
     safeClearSession(ctx.from.id);
@@ -1218,4 +1248,40 @@ function registerUserHandlers(bot) {
   });
 }
 
-module.exports = { registerUserHandlers, USER_STATES, mainMenuKeyboard };
+module.exports = { registerUserHandlers };
+
+function checkAbandonedCartPromo(bot, userId) {
+  setTimeout(async () => {
+    try {
+      const user = db.getUser(userId);
+      if (!user || user.received_abandoned_promo === 1) return;
+
+      const keys = db.getUserKeys(userId);
+      if (keys.length > 0) return;
+
+      db.markAbandonedPromoSent(userId);
+
+      const couponCode = `WELCOME30-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      db.createCoupon(couponCode, 30, userId);
+      
+      // Auto delete unused coupon after 6 hours
+      setTimeout(() => {
+        try {
+          db.getDb().prepare("DELETE FROM Coupons WHERE code = ? AND is_used = 0").run(couponCode);
+        } catch (err) {
+          console.error('Failed to expire coupon:', err);
+        }
+      }, 6 * 60 * 60 * 1000);
+
+      await bot.telegram.sendMessage(
+        userId,
+        `⏳ <b>Still thinking about it?</b>\n\nAs a special welcome gift, here is a <b>30% OFF</b> discount for the Freeflow extension! This is a one-time offer and expires in exactly 6 hours.\n\nUse code: <code>${couponCode}</code>`,
+        { parse_mode: 'HTML', ...buyCategoriesKeyboard() }
+      );
+    } catch (err) {
+      console.error('Failed in abandoned cart promo timeout:', err);
+    }
+  }, 2 * 60 * 60 * 1000); // 2 hours
+}
+
+module.exports = { registerUserHandlers, checkAbandonedCartPromo, USER_STATES, mainMenuKeyboard };
