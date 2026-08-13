@@ -505,6 +505,10 @@ function getCoupon(code) {
   return getDb().prepare('SELECT * FROM Coupons WHERE code = ?').get(code.toUpperCase());
 }
 
+function getUnclaimedCoupons() {
+  return getDb().prepare('SELECT * FROM Coupons WHERE is_used = 0 ORDER BY created_at DESC').all();
+}
+
 function markCouponUsed(code, userId) {
   const result = getDb()
     .prepare(`
@@ -568,6 +572,7 @@ module.exports = {
   getReferralCount,
   createCoupon,
   getCoupon,
+  getUnclaimedCoupons,
   markCouponUsed,
   getSalesData,
 };

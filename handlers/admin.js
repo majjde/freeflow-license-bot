@@ -504,6 +504,23 @@ function registerAdminHandlers(bot) {
     if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
     await ctx.answerCbQuery();
     
+    await ctx.editMessageText(
+      `🎟️ <b>Manage Coupons</b>\n\nSelect an option:`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('➕ Create New Coupon', 'admin:create_coupon')],
+          [Markup.button.callback('📋 View Unclaimed Coupons', 'admin:view_unclaimed_coupons')],
+          [Markup.button.callback('« Back', 'admin:settings')],
+        ]),
+      }
+    );
+  });
+
+  bot.action('admin:create_coupon', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+    
     setSession(ctx.from.id, { state: ADMIN_STATES.CREATE_COUPON_CODE });
     
     await ctx.editMessageText(
@@ -512,7 +529,40 @@ function registerAdminHandlers(bot) {
       `Type /cancel to abort.`,
       {
         parse_mode: 'HTML',
-        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:manage_coupons')]]),
+      }
+    );
+  });
+
+  bot.action('admin:view_unclaimed_coupons', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+    
+    const unclaimed = db.getUnclaimedCoupons();
+    if (unclaimed.length === 0) {
+      return ctx.editMessageText(
+        `📋 <b>Unclaimed Coupons</b>\n\nThere are no active unclaimed coupons.`,
+        {
+          parse_mode: 'HTML',
+          ...Markup.inlineKeyboard([[Markup.button.callback('« Back', 'admin:manage_coupons')]]),
+        }
+      );
+    }
+
+    let text = `📋 <b>Unclaimed Coupons (${unclaimed.length})</b>\n\n`;
+    for (const c of unclaimed.slice(0, 50)) {
+      const boundInfo = c.bound_to ? ` (Bound to User ID: ${c.bound_to})` : '';
+      text += `• <code>${c.code}</code> : ${c.discount_percent}% off${boundInfo}\n`;
+    }
+    if (unclaimed.length > 50) {
+      text += `\n...and ${unclaimed.length - 50} more.`;
+    }
+
+    await ctx.editMessageText(
+      text,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([[Markup.button.callback('« Back', 'admin:manage_coupons')]]),
       }
     );
   });
@@ -691,7 +741,7 @@ function registerAdminHandlers(bot) {
           `✅ Code <b>${code}</b> accepted.\n\nNow, enter the discount percentage (e.g., 50 for 50% OFF):`,
           {
             parse_mode: 'HTML',
-            ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
+            ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:manage_coupons')]]),
           }
         );
       }

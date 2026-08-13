@@ -961,6 +961,7 @@ function registerUserHandlers(bot) {
     if (ctx.chat?.type !== 'private') return;
 
     const session = getSession(ctx.from.id);
+    const textInput = ctx.message.text ? ctx.message.text.trim() : '';
 
     // Urgency interceptor — block text while special offer is pending
     if (session.state === USER_STATES.SPECIAL_OFFER_PENDING) {
@@ -1045,8 +1046,6 @@ function registerUserHandlers(bot) {
     if (session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
       return next();
     }
-
-    const textInput = ctx.message.text ? ctx.message.text.trim() : '';
 
     // Intelligently extract 12-digit UTR from user input
     // First, look for a 12-digit number following "UPI", "UTR", or "Ref"
