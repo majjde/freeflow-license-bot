@@ -102,6 +102,18 @@ function initDatabase() {
   try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_by INTEGER;'); } catch {}
   try { db.exec('ALTER TABLE Keys ADD COLUMN reserved_until TEXT;'); } catch {}
   try { db.exec('ALTER TABLE Users ADD COLUMN received_abandoned_promo INTEGER DEFAULT 0;'); } catch {}
+  try { db.exec('ALTER TABLE Referrals ADD COLUMN is_rewarded INTEGER DEFAULT 0;'); } catch {}
+  
+  db.exec(`CREATE TABLE IF NOT EXISTS Reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    username TEXT,
+    review_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', '+5 hours', '+30 minutes')),
+    FOREIGN KEY (user_id) REFERENCES Users(user_id)
+  );`);
+
   // Safely add Referrals table for existing DBs
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS Referrals (
@@ -485,9 +497,39 @@ function addReferral(referrerId, newUserId) {
  */
 function getReferralCount(referrerId) {
   const row = getDb()
-    .prepare('SELECT COUNT(*) as count FROM Referrals WHERE referrer_id = ?')
+    .prepare('SELECT COUNT(*) as count FROM Referrals WHERE referrer_id = ? AND is_rewarded = 0')
     .get(referrerId);
   return row ? row.count : 0;
+}
+
+function resetReferralCount(referrerId) {
+  getDb()
+    .prepare('UPDATE Referrals SET is_rewarded = 1 WHERE referrer_id = ? AND is_rewarded = 0')
+    .run(referrerId);
+}
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+
+function insertReview(userId, username, reviewText) {
+  const result = getDb()
+    .prepare(`
+      INSERT INTO Reviews (user_id, username, review_text)
+      VALUES (?, ?, ?)
+    `)
+    .run(userId, username, reviewText);
+  return result.lastInsertRowid;
+}
+
+function getReview(id) {
+  return getDb().prepare('SELECT * FROM Reviews WHERE id = ?').get(id);
+}
+
+function updateReviewStatus(id, status) {
+  getDb().prepare('UPDATE Reviews SET status = ? WHERE id = ?').run(status, id);
+}
+
+function deleteReview(id) {
+  getDb().prepare('DELETE FROM Reviews WHERE id = ?').run(id);
 }
 
 // ─── Coupons ─────────────────────────────────────────────────────────────────
@@ -584,4 +626,9 @@ module.exports = {
   getUnclaimedCoupons,
   markCouponUsed,
   getSalesData,
+  resetReferralCount,
+  insertReview,
+  getReview,
+  updateReviewStatus,
+  deleteReview,
 };

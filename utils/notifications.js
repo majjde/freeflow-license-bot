@@ -1,5 +1,5 @@
 const { Markup } = require('telegraf');
-const { ADMIN_CHAT_ID, SUPPORT_HANDLE } = require('../config');
+const { ADMIN_CHAT_ID, SUPPORT_HANDLE, DISCUSSION_GROUP_ID } = require('../config');
 
 // Dedicated logs channel: if LOGS_CHAT_ID is set, automated alerts go there.
 // Interactive admin workflows always stay on ADMIN_CHAT_ID.
@@ -56,6 +56,15 @@ function contactAdminKeyboard() {
   ]);
 }
 
+async function broadcastToGroup(bot, htmlText) {
+  if (!DISCUSSION_GROUP_ID) return;
+  try {
+    await bot.telegram.sendMessage(DISCUSSION_GROUP_ID, htmlText, { parse_mode: 'HTML' });
+  } catch (err) {
+    console.error('Group broadcast failed:', err.message);
+  }
+}
+
 module.exports = {
   notifyAdmin,
   notifyPaymentAttempt,
@@ -63,5 +72,6 @@ module.exports = {
   notifyUtrFailed,
   notifyTransactionCaptured,
   contactAdminKeyboard,
+  broadcastToGroup,
   LOGS_CHAT_ID,
 };

@@ -37,6 +37,23 @@ bot.catch((err, ctx) => {
 registerAdminHandlers(bot);
 registerUserHandlers(bot);
 
+bot.on('new_chat_members', async (ctx) => {
+  const { DISCUSSION_GROUP_ID } = require('./config');
+  if (!DISCUSSION_GROUP_ID || ctx.chat.id !== Number(DISCUSSION_GROUP_ID)) return;
+  
+  for (const member of ctx.message.new_chat_members) {
+    if (member.is_bot) continue;
+    try {
+      await ctx.reply(
+        `🎉 <b>Welcome to the Freeflow Inner Circle, ${member.first_name}!</b>\n\nCheck the pinned messages for the setup guide and feel free to ask questions!`,
+        { parse_mode: 'HTML' }
+      );
+    } catch (e) {
+      console.error('Welcome failed:', e.message);
+    }
+  }
+});
+
 // ─── /getdata — Admin Excel Export ────────────────────────────────────────────
 
 bot.command('getdata', async (ctx) => {

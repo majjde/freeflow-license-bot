@@ -27,6 +27,7 @@ const USER_STATES = {
   SPECIAL_OFFER_PENDING: 'user_special_offer_pending',
   AWAITING_TICKET_MESSAGE: 'user_awaiting_ticket_message',
   AWAITING_COUPON: 'user_awaiting_coupon',
+  AWAITING_REVIEW: 'user_awaiting_review',
 };
 
 function getSession(id) {

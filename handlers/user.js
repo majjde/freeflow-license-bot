@@ -10,6 +10,7 @@ const {
   notifyKeyDelivered,
   notifyUtrFailed,
   contactAdminKeyboard,
+  broadcastToGroup,
 } = require('../utils/notifications');
 
 function validityLabel(period) {
@@ -40,10 +41,11 @@ function mainMenuKeyboard() {
   if (db.getSetting('menu_referral', '1') === '1') row2.push(Markup.button.callback('🎁 Refer and save', 'menu:referral'));
   if (row2.length > 0) buttons.push(row2);
 
-  // R3: How to use | Raise a ticket
+  // R3: How to use | Raise a ticket | Write a Review
   const row3 = [];
   if (db.getSetting('menu_usage', '1') === '1') row3.push(Markup.button.callback('📖 How to use', 'menu:usage'));
   if (db.getSetting('menu_ticket', '1') === '1') row3.push(Markup.button.callback('🎫 Raise a ticket', 'menu:ticket'));
+  if (db.getSetting('menu_review', '1') === '1') row3.push(Markup.button.callback('⭐ Write a Review', 'menu:review'));
   if (row3.length > 0) buttons.push(row3);
 
   // Hidden buttons (append as new rows if enabled)
@@ -229,15 +231,24 @@ function registerUserHandlers(bot) {
           const count = db.getReferralCount(referrerId);
 
           // Reward: every 3 successful referrals, gift a 50% discount coupon bound to the user
-          if (count > 0 && count % 3 === 0) {
+          if (count > 0 && count === 3) {
+            db.resetReferralCount(referrerId);
             const couponCode = `REF50-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
             db.createCoupon(couponCode, 50, referrerId);
 
             try {
               await bot.telegram.sendMessage(
                 referrerId,
-                `🎉 <b>Referral Reward!</b>\n\nYou've successfully referred <b>${count}</b> friends — here is your exclusive <b>50% OFF Coupon Code</b>:\n\n<code>${couponCode}</code>\n\nThis coupon is bound to your account and can be used on any purchase!`,
+                `🎉 <b>You did it!</b>\n\nYou successfully invited 3 friends! Here is your exclusive reward coupon: <code>${couponCode}</code>\n\nYour count has been reset—invite 3 more friends to earn another reward!`,
                 { parse_mode: 'HTML', ...mainMenuKeyboard() }
+              );
+              
+              const referrerUser = db.getUser(referrerId);
+              const referrerName = referrerUser ? (referrerUser.username || referrerUser.user_id) : referrerId;
+              
+              await broadcastToGroup(
+                bot, 
+                `🔥 <b>Referral Master!</b>\n\nHuge shoutout to <b>${referrerName}</b> for successfully inviting 3 new builders to Freeflow! They just secured a massive discount reward! 🚀`
               );
             } catch (err) {
               console.error('Failed to send referral reward:', err.message);
@@ -628,6 +639,18 @@ function registerUserHandlers(bot) {
     }
   });
 
+  bot.action('menu:review', async (ctx) => {
+    await ctx.answerCbQuery();
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_REVIEW });
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('« Cancel', 'menu:main')]
+    ]);
+    await ctx.reply(
+      '⭐ <b>Write a Review</b>\n\nWe would love to hear your feedback! Please type your review below:',
+      { parse_mode: 'HTML', ...keyboard }
+    );
+  });
+
   // ─── 🎁 Free Key Tripwire ─────────────────────────────────────────────────
 
   bot.action('menu:free_key', async (ctx) => {
@@ -972,6 +995,37 @@ function registerUserHandlers(bot) {
       );
     }
 
+    // ─── Review Submission ──────────────────────────────────────────────────
+    if (session.state === USER_STATES.AWAITING_REVIEW) {
+      clearSession(ctx.from.id);
+      
+      const reviewText = textInput;
+      const username = ctx.from.first_name || 'User';
+      const reviewId = db.insertReview(ctx.from.id, username, reviewText);
+
+      const adminKeyboard = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('✅ Approve', `approve_review:${reviewId}`),
+          Markup.button.callback('❌ Reject', `reject_review:${reviewId}`)
+        ]
+      ]);
+
+      try {
+        await bot.telegram.sendMessage(
+          config.ADMIN_CHAT_ID,
+          `📝 <b>New Review for Approval</b>\nFrom: ${username}\n\n<i>${reviewText}</i>`,
+          { parse_mode: 'HTML', ...adminKeyboard }
+        );
+      } catch (err) {
+        console.error('Failed to send review to admin:', err.message);
+      }
+
+      return ctx.reply(
+        'Thank you! Your review has been submitted for approval.',
+        { ...mainMenuKeyboard() }
+      );
+    }
+
 
     // ─── Coupon Application ────────────────────────────────────────────────
     if (session.state === USER_STATES.AWAITING_COUPON) {
@@ -1222,6 +1276,21 @@ async function fulfillOrder(bot, userId, amount, utr) {
         });
       } catch (err) {}
     }
+    
+    // Broadcast purchase to group
+    try {
+      const user = db.getUser(userId);
+      const rawName = user ? (user.username || String(user.user_id)) : String(userId);
+      const maskedName = rawName.length <= 2 ? `${rawName}**` : `${rawName.slice(0, -2)}**`;
+      
+      await broadcastToGroup(
+        bot,
+        `🛒 <b>New Purchase!</b>\n\n<b>${maskedName}</b> just grabbed a Freeflow Pro Key! Welcome to the premium club! ⚡️`
+      );
+    } catch (err) {
+      console.error('Failed to broadcast purchase:', err.message);
+    }
+
     return { ok: true };
   }
   return result;

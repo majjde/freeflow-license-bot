@@ -3,6 +3,7 @@ const db = require('../database');
 const fs = require('fs');
 const { ADMIN_CHAT_ID, VALIDITY_PERIODS, DB_PATH } = require('../config');
 const { getSession, setSession, clearSession, ADMIN_STATES } = require('../utils/session');
+const { broadcastToGroup } = require('../utils/notifications');
 
 function isAdmin(ctx) {
   return ctx.from && ctx.chat && ctx.chat.type === 'private' && ctx.chat.id === ADMIN_CHAT_ID;
@@ -880,6 +881,47 @@ function registerAdminHandlers(bot) {
     clearSession(ctx.from.id);
     await ctx.reply('Cancelled.', adminPanelKeyboard());
   });
+
+  // ─── Review Approval Workflow ──────────────────────────────────────────────
+  
+  bot.action(/^approve_review:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx)) return;
+    const reviewId = Number(ctx.match[1]);
+    const review = db.getReview(reviewId);
+    
+    if (!review) {
+      return ctx.answerCbQuery('Review not found.');
+    }
+    
+    if (review.status === 'approved') {
+      return ctx.answerCbQuery('Review already approved.');
+    }
+
+    db.updateReviewStatus(reviewId, 'approved');
+    
+    await broadcastToGroup(bot, `⭐️ <b>New User Review!</b>\n\n<i>"${review.review_text}"</i>\n\n- <b>${review.username}</b>`);
+    
+    await ctx.editMessageText('✅ Review Approved and Broadcasted.');
+  });
+
+  bot.action(/^reject_review:(\d+)$/, async (ctx) => {
+    if (!isAdmin(ctx)) return;
+    const reviewId = Number(ctx.match[1]);
+    const review = db.getReview(reviewId);
+    
+    if (!review) {
+      return ctx.answerCbQuery('Review not found.');
+    }
+
+    db.updateReviewStatus(reviewId, 'rejected');
+    
+    try {
+      await ctx.deleteMessage();
+    } catch (err) {
+      await ctx.editMessageText('❌ Review Rejected.');
+    }
+  });
+
 }
 
 module.exports = { registerAdminHandlers, isAdmin, ADMIN_STATES };
