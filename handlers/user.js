@@ -27,16 +27,34 @@ function validityLabel(period) {
 }
 
 function mainMenuKeyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('🎁 Get free key', 'menu:free_key')],
-    [Markup.button.callback('🛒 Buy key', 'menu:buy')],
-    [Markup.button.callback('🔑 My keys', 'menu:my_keys')],
-    [Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')],
-    [Markup.button.callback('⬇️ Download Extension', 'menu:download')],
-    [Markup.button.callback('🎁 Refer & Earn', 'menu:referral')],
-    [Markup.button.callback('📖 How to use', 'menu:usage')],
-    [Markup.button.callback('🎫 Raise a ticket', 'menu:ticket')],
-  ]);
+  const buttons = [];
+  
+  if (db.getSetting('menu_free_key', '1') === '1') {
+    buttons.push([Markup.button.callback('🎁 Get free key', 'menu:free_key')]);
+  }
+  if (db.getSetting('menu_buy', '1') === '1') {
+    buttons.push([Markup.button.callback('🛒 Buy key', 'menu:buy')]);
+  }
+  if (db.getSetting('menu_my_keys', '1') === '1') {
+    buttons.push([Markup.button.callback('🔑 My keys', 'menu:my_keys')]);
+  }
+  if (db.getSetting('menu_learn_ai', '1') === '1') {
+    buttons.push([Markup.button.callback('🧠 Learn and master AI', 'menu:learn_ai')]);
+  }
+  if (db.getSetting('menu_download', '1') === '1') {
+    buttons.push([Markup.button.callback('⬇️ Download Extension', 'menu:download')]);
+  }
+  if (db.getSetting('menu_referral', '1') === '1') {
+    buttons.push([Markup.button.callback('🎁 Refer & Earn', 'menu:referral')]);
+  }
+  if (db.getSetting('menu_usage', '1') === '1') {
+    buttons.push([Markup.button.callback('📖 How to use', 'menu:usage')]);
+  }
+  if (db.getSetting('menu_ticket', '1') === '1') {
+    buttons.push([Markup.button.callback('🎫 Raise a ticket', 'menu:ticket')]);
+  }
+
+  return Markup.inlineKeyboard(buttons);
 }
 
 // Delivery keyboard shown after any successful key delivery

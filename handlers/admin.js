@@ -23,7 +23,33 @@ function settingsSubmenuKeyboard() {
     [Markup.button.callback('✏️ Edit Usage Guide', 'admin_edit_setting:usage')],
     [Markup.button.callback('✏️ Edit Download Msg', 'admin_edit_setting:download_msg')],
     [Markup.button.callback('📦 Upload Extension (.zip)', 'admin_upload_extension')],
+    [Markup.button.callback('👁️ Manage Menu Options', 'admin:manage_menu')],
     [Markup.button.callback('« Back', 'admin:panel')],
+  ]);
+}
+
+function manageMenuKeyboard() {
+  const isEnabled = (key) => db.getSetting(`menu_${key}`, '1') === '1';
+  const getIcon = (key) => isEnabled(key) ? '✅' : '❌';
+  
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(`${getIcon('free_key')} 🎁 Free key`, 'admin_toggle_menu:free_key'),
+      Markup.button.callback(`${getIcon('buy')} 🛒 Buy key`, 'admin_toggle_menu:buy')
+    ],
+    [
+      Markup.button.callback(`${getIcon('my_keys')} 🔑 My keys`, 'admin_toggle_menu:my_keys'),
+      Markup.button.callback(`${getIcon('learn_ai')} 🧠 Learn AI`, 'admin_toggle_menu:learn_ai')
+    ],
+    [
+      Markup.button.callback(`${getIcon('download')} ⬇️ Download`, 'admin_toggle_menu:download'),
+      Markup.button.callback(`${getIcon('referral')} 🎁 Refer & Earn`, 'admin_toggle_menu:referral')
+    ],
+    [
+      Markup.button.callback(`${getIcon('usage')} 📖 How to use`, 'admin_toggle_menu:usage'),
+      Markup.button.callback(`${getIcon('ticket')} 🎫 Raise a ticket`, 'admin_toggle_menu:ticket')
+    ],
+    [Markup.button.callback('« Back', 'admin:settings')],
   ]);
 }
 
@@ -451,6 +477,26 @@ function registerAdminHandlers(bot) {
         ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'admin:settings')]]),
       }
     );
+  });
+
+  bot.action('admin:manage_menu', async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      '👁️ <b>Manage Menu Options</b>\n\nClick an option to toggle its visibility in the user menu.',
+      { parse_mode: 'HTML', ...manageMenuKeyboard() }
+    );
+  });
+
+  bot.action(/^admin_toggle_menu:(.+)$/, async (ctx) => {
+    if (!isAdmin(ctx)) return ctx.answerCbQuery('Unauthorized');
+    const key = ctx.match[1];
+    const current = db.getSetting(`menu_${key}`, '1');
+    const next = current === '1' ? '0' : '1';
+    db.setSetting(`menu_${key}`, next);
+    
+    await ctx.editMessageReplyMarkup(manageMenuKeyboard().reply_markup);
+    await ctx.answerCbQuery(`Menu option ${next === '1' ? 'enabled' : 'disabled'}`);
   });
 
   // ─── Admin text / document / photo / video handlers ───────────────────────
