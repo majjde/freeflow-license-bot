@@ -4,7 +4,7 @@
  */
 
 const sessions = new Map();
-const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
+const SESSION_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 const ADMIN_STATES = {
   UPLOAD_KEYS: 'admin_upload_keys',
@@ -61,11 +61,25 @@ function hasSession(id) {
   return true;
 }
 
+function getAllSessions() {
+  const activeSessions = new Map();
+  const now = Date.now();
+  for (const [id, sess] of sessions.entries()) {
+    if (now - (sess.updatedAt || 0) <= SESSION_TTL_MS) {
+      activeSessions.set(id, sess);
+    } else {
+      sessions.delete(id);
+    }
+  }
+  return activeSessions;
+}
+
 module.exports = {
   getSession,
   setSession,
   clearSession,
   hasSession,
+  getAllSessions,
   ADMIN_STATES,
   USER_STATES,
 };

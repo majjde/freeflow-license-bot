@@ -132,7 +132,33 @@ app.post('/macrodroid-webhook', async (req, res) => {
     }
 
     await notifyTransactionCaptured(bot, utr, amount);
-    return res.status(200).json({ success: true, utr, amount });
+
+    // ── Auto-Verification Matchup ─────────────────────────────────────────
+    const { getAllSessions, USER_STATES } = require('./utils/session');
+    const { fulfillOrder } = require('./handlers/user');
+    const allSessions = getAllSessions();
+    let autoVerified = false;
+    
+    for (const [userId, s] of allSessions.entries()) {
+      if (s.state === USER_STATES.AWAITING_UTR && Number(s.expectedAmount) === Number(amount)) {
+        // Match found! Fulfill order
+        const orderResult = await fulfillOrder(bot, userId, amount, utr);
+        
+        if (orderResult.ok) {
+          autoVerified = true;
+          try {
+            await bot.telegram.sendMessage(
+              LOGS_CHAT_ID,
+              `⚡ <b>Auto-Verification Success (Webhook)!</b>\n\nUTR: <code>${utr}</code>\nAmount: ₹${amount}\nMatched User: ${userId}`,
+              { parse_mode: 'HTML' }
+            );
+          } catch (err) {}
+        }
+        break;
+      }
+    }
+
+    return res.status(200).json({ success: true, utr, amount, autoVerified });
   } catch (err) {
     console.error('Webhook error:', err);
     return res.status(500).json({ error: 'Internal server error' });

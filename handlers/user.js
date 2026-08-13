@@ -834,11 +834,14 @@ function registerUserHandlers(bot) {
     }
 
     // ── Pricing logic ───────────────────────────────────────────────────────
-    let finalPrice = category.amount;
+    let basePrice = category.amount;
     const isDiscounted = session.discount === 0.5 && session.discountExpiresAt && Date.now() < session.discountExpiresAt;
     if (isDiscounted) {
-      finalPrice = Math.ceil(category.amount * 0.5);
+      basePrice = Math.ceil(category.amount * 0.5);
     }
+    
+    // Dynamic Micro-Pricing
+    const finalPrice = getUniquePriceForSession(basePrice);
 
     // Save expected amount for UTR validation
     setSession(ctx.from.id, { expectedAmount: finalPrice });
@@ -896,11 +899,7 @@ function registerUserHandlers(bot) {
 
     await notifyPaymentAttempt(bot, ctx.from, category);
 
-    const checkoutCaption = isDiscounted
-      ? `🛒 <b>Special Offer Checkout!</b>\n\nOriginal Price: ₹${category.amount}\n<b>Your Price: ₹${finalPrice}</b>\n\nPlease scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`
-      : `🛒 <b>Checkout</b>\n\nPrice: ₹${finalPrice}\n\n` +
-        (category.custom_message ? `${category.custom_message}\n\n` : '') +
-        `Please scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`;
+    const checkoutCaption = `🛒 <b>Checkout</b>\n\nPrice: ₹${finalPrice}\n\n👉 <b>Scan & Pay:</b> Just scan the QR code and pay exactly ₹${finalPrice}. The bot will automatically verify your payment and send your key in seconds! No need to send a UTR.\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 2 Hours to complete this payment.</i>`;
 
     try {
       const qrBuffer = await generateUpiQr(finalPrice);
@@ -935,24 +934,11 @@ function registerUserHandlers(bot) {
   });
 
   function _startReservationTimer(bot, userId, categoryId, category, session) {
-    return setTimeout(async () => {
-      const sess = getSession(userId);
-      if (sess.state === USER_STATES.AWAITING_UTR && sess.categoryId === categoryId) {
-        clearSession(userId);
-        try {
-          await bot.telegram.sendMessage(
-            userId,
-            `⏳ <b>Payment Window Expired</b>\n\nYour 1-hour payment window has expired. Please restart the checkout process if you still wish to purchase.`,
-            { parse_mode: 'HTML', ...mainMenuKeyboard() }
-          );
-        } catch (err) {
-          console.error('Failed to send reservation expiry message:', err.message);
-        }
-      }
-    }, 60 * 60 * 1000); // 1 hour
+    // We now use the centralized startCheckoutTimeout instead
+    return startCheckoutTimeout(bot, userId, categoryId);
   }
 
-  // ─── UTR verification ─────────────────────────────────────────────────────
+  // ─── Verification ─────────────────────────────────────────────────────
 
   bot.on('text', async (ctx, next) => {
     if (ctx.chat?.type !== 'private') return;
@@ -1008,20 +994,22 @@ function registerUserHandlers(bot) {
       const category = db.getCategoryById(categoryId);
       
       const discountPercent = coupon.discount_percent;
-      const finalPrice = Math.ceil(category.amount * (1 - discountPercent / 100));
+      const basePrice = Math.ceil(category.amount * (1 - discountPercent / 100));
+      const finalPrice = getUniquePriceForSession(basePrice);
 
       setSession(ctx.from.id, { 
         state: USER_STATES.AWAITING_UTR,
         categoryId: categoryId,
         expectedAmount: finalPrice,
-        appliedCoupon: code
+        appliedCoupon: code,
+        timerId: session.timerId
       });
 
       const checkoutCaption = `🛒 <b>Checkout</b>\n\n` +
         `Original Price: ₹${category.amount}\n` +
         `Coupon Applied: <b>${code}</b> (-${discountPercent}%)\n` +
         `<b>New Price: ₹${finalPrice}</b>\n\n` +
-        `Please scan the QR code above to pay, or copy the UPI ID below:\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 1 Hour to complete this payment and send your UTR number below.</i>`;
+        `👉 <b>Scan & Pay:</b> Just scan the QR code and pay exactly ₹${finalPrice}. The bot will automatically verify your payment and send your key in seconds! No need to send a UTR.\n\n👉 <b>Tap to copy UPI ID:</b> <code>${config.UPI_ID}</code>\n\n⚠️ <i>You have exactly 2 Hours to complete this payment.</i>`;
 
       const checkoutKeyboard = Markup.inlineKeyboard([
         [Markup.button.callback('📥 Download QR Code', 'download_qr')],
@@ -1040,172 +1028,6 @@ function registerUserHandlers(bot) {
       }
       return;
     }
-
-    if (session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
-      return next();
-    }
-
-    // Intelligently extract 12-digit UTR from user input
-    // First, look for a 12-digit number following "UPI", "UTR", or "Ref"
-    let utr = null;
-    const specificMatch = textInput.match(/(?:UPI|UTR|Ref\s*No|Reference)[\s:\-\(]*(\d{12})\b/i);
-    
-    if (specificMatch) {
-      utr = specificMatch[1];
-    } else {
-      // Fallback: find any standalone 12-digit number
-      const generalMatch = textInput.match(/\b(\d{12})\b/);
-      if (generalMatch) {
-        utr = generalMatch[1];
-      }
-    }
-
-    if (!utr) {
-      return ctx.reply(
-        "❌ I couldn't find a valid 12-digit UTR in your message.\n\nPlease reply with the correct 12-digit UTR/RRN number.\n\n💡 *Where to find it:* Look for a 12-digit number (often starting with 3 or 4) in your UPI app's payment confirmation screen or your bank SMS.",
-        { parse_mode: 'Markdown' }
-      );
-    }
-
-    const category = db.getCategoryById(session.categoryId);
-    if (!category) {
-      safeClearSession(ctx.from.id);
-      return ctx.reply('This plan is no longer available. Please start again.', mainMenuKeyboard());
-    }
-
-    db.upsertUser(ctx.from.id, ctx.from.username);
-
-    // Use captured expectedAmount (respects active discount)
-    const expectedAmount = session.expectedAmount || category.amount;
-    const appliedCoupon = session.appliedCoupon;
-
-    const result = db.processPaymentClaim({
-      utr,
-      userId: ctx.from.id,
-      categoryId: session.categoryId,
-      expectedAmount,
-    });
-
-    // Clean up discount state and timers on any outcome
-    const discountTimeoutId = session.discountTimeoutId;
-    safeClearSession(ctx.from.id);
-    if (discountTimeoutId) clearTimeout(discountTimeoutId);
-
-    if (result.ok) {
-      // Mark the coupon as used if one was applied
-      if (appliedCoupon) {
-        db.markCouponUsed(appliedCoupon, ctx.from.id);
-      }
-
-      if (category.validity_period === 'vip') {
-        let inviteText = '';
-        try {
-          if (!config.VIP_GROUP_ID) {
-            throw new Error('VIP_GROUP_ID is not configured');
-          }
-          const inviteLink = await ctx.telegram.createChatInviteLink(config.VIP_GROUP_ID, { member_limit: 1 });
-          inviteText = `Click the unique link below to join our private group. (This link will only work once!)\n\n${inviteLink.invite_link}`;
-        } catch (err) {
-          console.error('Failed to generate VIP group invite link:', err);
-          inviteText = `VIP Group link could not be generated. Please contact support.`;
-        }
-
-        await ctx.reply(
-          `🎉 <b>VIP Payment Verified!</b>\n\n` +
-            `Welcome to the Inner Circle! ${inviteText}`,
-          {
-            parse_mode: 'HTML',
-            ...deliveryKeyboard(),
-          }
-        );
-
-        if (PUBLIC_GROUP_ID) {
-          try {
-            const rawName = ctx.from.username || ctx.from.first_name || 'User';
-            const maskedName =
-              rawName.length <= 2 ? `${rawName}**` : `${rawName.slice(0, -2)}**`;
-
-            await bot.telegram.sendMessage(
-              PUBLIC_GROUP_ID,
-              `👑 <b>New VIP Member!</b> A huge thanks to <b>${maskedName}</b> for joining the Private VIP Group! 🚀`,
-              { parse_mode: 'HTML' }
-            );
-          } catch (err) {
-            console.error('Failed to send public group VIP notification:', err.message);
-          }
-        }
-
-        return;
-      }
-
-      await notifyKeyDelivered(bot, ctx.from, result.key, category);
-
-      const wasDiscounted = expectedAmount < category.amount;
-      const deliveryMsg = wasDiscounted
-        ? `🎉 <b>Payment Verified!</b>\n\n` +
-          `Here is your license key:\n\n` +
-          `<code>${result.key}</code>\n\n` +
-          `Plan: ${validityLabel(category.validity_period)}\n` +
-          `Original Price: ₹${category.amount} | You Paid: ₹${expectedAmount} (50% OFF! 🎉)\n\n` +
-          `Tap "How to Use" below if you need setup help.`
-        : `🎉 <b>Payment Verified!</b>\n\n` +
-          `Here is your license key:\n\n` +
-          `<code>${result.key}</code>\n\n` +
-          `Plan: ${validityLabel(category.validity_period)}\n` +
-          `Amount Paid: ₹${result.amount}\n\n` +
-          `Tap "How to Use" below if you need setup help.`;
-
-      await ctx.reply(deliveryMsg, {
-        parse_mode: 'HTML',
-        ...deliveryKeyboard(),
-      });
-
-      const extensionFileId = db.getSetting('extension_file_id', null);
-      if (extensionFileId) {
-        try {
-          await ctx.replyWithDocument(extensionFileId, {
-            caption: '📥 Here is your extension file. Enjoy!',
-            parse_mode: 'HTML'
-          });
-        } catch (err) {
-          console.error('Failed to auto-send extension document:', err);
-        }
-      }
-
-      if (PUBLIC_GROUP_ID) {
-        try {
-          const rawName = ctx.from.username || ctx.from.first_name || 'User';
-          const maskedName =
-            rawName.length <= 2 ? `${rawName}**` : `${rawName.slice(0, -2)}**`;
-
-          await bot.telegram.sendMessage(
-            PUBLIC_GROUP_ID,
-            `🎉 <b>New Purchase!</b>\n\nA huge thanks to <b>${maskedName}</b> for grabbing a Freeflow Pro key! 🚀\n\nGet yours instantly via our bot!`,
-            { parse_mode: 'HTML' }
-          );
-        } catch (err) {
-          console.error('Failed to send public group notification:', err.message);
-        }
-      }
-
-      return;
-    }
-
-    const reasonMap = {
-      not_found: 'UTR not found in payment records yet',
-      already_used: 'UTR already claimed',
-      amount_mismatch: `Amount received (₹${result.received}) is less than required (₹${expectedAmount})`,
-      no_keys: 'No keys available in stock',
-    };
-
-    const reason = reasonMap[result.reason] || 'Verification failed';
-    await notifyUtrFailed(bot, ctx.from, utr, reason);
-
-    await ctx.reply(
-      `❌ UTR verification issue: ${reason}.\n\n` +
-        `If you just paid, please wait a few seconds and send the UTR again. If the issue persists, contact support with your payment screenshot.`,
-      contactAdminKeyboard()
-    );
   });
 
   bot.action('download_qr', async (ctx) => {

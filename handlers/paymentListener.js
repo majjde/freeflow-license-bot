@@ -3,7 +3,7 @@ const { extractUtr, extractAmount } = require('../utils/regex');
 const db = require('../database');
 const { notifyTransactionCaptured } = require('../utils/notifications');
 const { ADMIN_CHAT_ID } = require('../config');
-const { getSession } = require('../utils/session');
+const { getSession, getAllSessions, USER_STATES } = require('../utils/session');
 const { ADMIN_STATES } = require('./admin');
 
 /**
@@ -47,6 +47,29 @@ function registerPaymentListener(bot) {
     await ctx.reply(`✅ Saved payment:\nUTR: <code>${utr}</code>\nAmount: ₹${amount}`, {
       parse_mode: 'HTML',
     });
+
+    // ── Auto-Verification Matchup ─────────────────────────────────────────
+    const { fulfillOrder } = require('./user');
+    const allSessions = getAllSessions();
+    
+    for (const [userId, s] of allSessions.entries()) {
+      if (s.state === USER_STATES.AWAITING_UTR && Number(s.expectedAmount) === Number(amount)) {
+        // Match found! Fulfill order
+        const result = await fulfillOrder(bot, userId, amount, utr);
+        
+        if (result.ok) {
+          const LOGS_CHAT_ID = process.env.LOGS_CHAT_ID || ADMIN_CHAT_ID;
+          try {
+            await bot.telegram.sendMessage(
+              LOGS_CHAT_ID,
+              `⚡ <b>Auto-Verification Success!</b>\n\nUTR: <code>${utr}</code>\nAmount: ₹${amount}\nMatched User: ${userId}`,
+              { parse_mode: 'HTML' }
+            );
+          } catch (err) {}
+        }
+        break;
+      }
+    }
   });
 }
 
