@@ -76,8 +76,7 @@ function buyCategoriesKeyboard() {
 
   const buttons = categories.map((cat) => {
     const available = db.getAvailableKeyCount(cat.id);
-    const priceTag = `₹${cat.amount}`;
-    const label = `${validityLabel(cat.validity_period)} — ${priceTag}${available === 0 ? ' (Out of stock)' : ''}`;
+    const label = `${validityLabel(cat.validity_period)}${available === 0 ? ' (Out of stock)' : ''}`;
     return [Markup.button.callback(label, `buy:${cat.id}`)];
   });
 
@@ -98,8 +97,7 @@ function discountedBuyCategoriesKeyboard(discount) {
 
   const buttons = categories.map((cat) => {
     const available = db.getAvailableKeyCount(cat.id);
-    const finalPrice = Math.ceil(cat.amount * (1 - discount));
-    const label = `${validityLabel(cat.validity_period)} — ~~₹${cat.amount}~~ ₹${finalPrice}${available === 0 ? ' (Out of stock)' : ''}`;
+    const label = `${validityLabel(cat.validity_period)}${available === 0 ? ' (Out of stock)' : ''}`;
     return [Markup.button.callback(label, `buy:${cat.id}`)];
   });
 
@@ -1106,4 +1104,126 @@ function checkAbandonedCartPromo(bot, userId) {
   }, 2 * 60 * 60 * 1000); // 2 hours
 }
 
-module.exports = { registerUserHandlers, checkAbandonedCartPromo, USER_STATES, mainMenuKeyboard };
+module.exports = { registerUserHandlers, checkAbandonedCartPromo, USER_STATES, mainMenuKeyboard, fulfillOrder };
+
+function getUniquePriceForSession(basePrice) {
+  const { getAllSessions } = require('../utils/session');
+  const sessions = getAllSessions();
+  
+  const occupiedAmounts = new Set();
+  for (const sess of sessions.values()) {
+    if (sess.state === USER_STATES.AWAITING_UTR && sess.expectedAmount) {
+      occupiedAmounts.add(sess.expectedAmount);
+    }
+  }
+
+  // Iterate up to 10 steps below the base price
+  for (let i = 0; i <= 10; i++) {
+    const candidate = basePrice - i;
+    if (!occupiedAmounts.has(candidate) && candidate > 0) {
+      return candidate;
+    }
+  }
+
+  // Fallback to basePrice if all 10 slots are occupied
+  return basePrice;
+}
+
+function startCheckoutTimeout(bot, userId, categoryId) {
+  return setTimeout(async () => {
+    const { getSession, clearSession } = require('../utils/session');
+    const sess = getSession(userId);
+    // Strict 2-hour timeout: Cancel if they are still awaiting UTR
+    if (sess.state === USER_STATES.AWAITING_UTR && sess.categoryId === categoryId) {
+      clearSession(userId);
+      try {
+        await bot.telegram.sendMessage(
+          userId,
+          `⏳ <b>Session Expired.</b>\n\nYour 2-hour payment window has closed, and this transaction/deal has been canceled. Please type /start to begin a new purchase.`,
+          { parse_mode: 'HTML' }
+        );
+      } catch (err) {
+        console.error('Failed to send reservation expiry message:', err.message);
+      }
+    }
+  }, 2 * 60 * 60 * 1000); // 2 hours
+}
+
+async function fulfillOrder(bot, userId, amount, utr) {
+  const { getSession, clearSession } = require('../utils/session');
+  const session = getSession(userId);
+  if (!session || session.state !== USER_STATES.AWAITING_UTR || !session.categoryId) {
+    return { ok: false, reason: 'invalid_session' };
+  }
+
+  const categoryId = session.categoryId;
+  const category = db.getCategoryById(categoryId);
+  if (!category) {
+    clearSession(userId);
+    return { ok: false, reason: 'category_not_found' };
+  }
+
+  db.upsertUser(userId, 'Unknown'); // We don't have username from SMS easily, but it's upsert
+
+  const expectedAmount = session.expectedAmount || category.amount;
+  const appliedCoupon = session.appliedCoupon;
+
+  const result = db.processPaymentClaim({
+    utr,
+    userId,
+    categoryId,
+    expectedAmount: amount, // we use the received amount to verify
+  });
+
+  const discountTimeoutId = session.discountTimeoutId;
+  const checkoutTimerId = session.timerId;
+  clearSession(userId);
+  if (discountTimeoutId) clearTimeout(discountTimeoutId);
+  if (checkoutTimerId) clearTimeout(checkoutTimerId);
+
+  if (result.ok) {
+    if (appliedCoupon) {
+      db.markCouponUsed(appliedCoupon, userId);
+    }
+
+    if (category.validity_period === 'vip') {
+      let inviteText = '';
+      try {
+        const inviteLink = await bot.telegram.createChatInviteLink(config.VIP_GROUP_ID, { member_limit: 1 });
+        inviteText = `Click the unique link below to join our private group. (This link will only work once!)\n\n${inviteLink.invite_link}`;
+      } catch (err) {
+        console.error('Failed to generate VIP group invite link:', err);
+        inviteText = `VIP Group link could not be generated. Please contact support.`;
+      }
+
+      await bot.telegram.sendMessage(
+        userId,
+        `🎉 <b>VIP Payment Automatically Verified!</b>\n\nWelcome to the Inner Circle! ${inviteText}`,
+        { parse_mode: 'HTML', ...deliveryKeyboard() }
+      );
+      return { ok: true };
+    }
+
+    await notifyKeyDelivered(bot, { id: userId, username: '' }, result.key, category);
+
+    const wasDiscounted = expectedAmount < category.amount;
+    const deliveryMsg = wasDiscounted
+      ? `🎉 <b>Payment Automatically Verified!</b>\n\nHere is your license key:\n\n<code>${result.key}</code>\n\nPlan: ${validityLabel(category.validity_period)}\nOriginal Price: ₹${category.amount} | You Paid: ₹${amount}\n\nTap "How to Use" below if you need setup help.`
+      : `🎉 <b>Payment Automatically Verified!</b>\n\nHere is your license key:\n\n<code>${result.key}</code>\n\nPlan: ${validityLabel(category.validity_period)}\nAmount Paid: ₹${amount}\n\nTap "How to Use" below if you need setup help.`;
+
+    await bot.telegram.sendMessage(userId, deliveryMsg, { parse_mode: 'HTML', ...deliveryKeyboard() });
+
+    const extensionFileId = db.getSetting('extension_file_id', null);
+    if (extensionFileId) {
+      try {
+        await bot.telegram.sendDocument(userId, extensionFileId, {
+          caption: '📥 Here is your extension file. Enjoy!',
+          parse_mode: 'HTML'
+        });
+      } catch (err) {}
+    }
+    return { ok: true };
+  }
+  return result;
+}
+
