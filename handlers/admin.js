@@ -44,7 +44,7 @@ function manageMenuKeyboard() {
     ],
     [
       Markup.button.callback(`${getIcon('download')} ⬇️ Download`, 'admin_toggle_menu:download'),
-      Markup.button.callback(`${getIcon('referral')} 🎁 Refer & Earn`, 'admin_toggle_menu:referral')
+      Markup.button.callback(`${getIcon('referral')} 🎁 Refer and Save`, 'admin_toggle_menu:referral')
     ],
     [
       Markup.button.callback(`${getIcon('usage')} 📖 How to use`, 'admin_toggle_menu:usage'),

@@ -45,7 +45,7 @@ function mainMenuKeyboard() {
     buttons.push([Markup.button.callback('⬇️ Download Extension', 'menu:download')]);
   }
   if (db.getSetting('menu_referral', '1') === '1') {
-    buttons.push([Markup.button.callback('🎁 Refer & Earn', 'menu:referral')]);
+    buttons.push([Markup.button.callback('🎁 Refer and Save', 'menu:referral')]);
   }
   if (db.getSetting('menu_usage', '1') === '1') {
     buttons.push([Markup.button.callback('📖 How to use', 'menu:usage')]);
@@ -554,15 +554,15 @@ function registerUserHandlers(bot) {
     const nextReward = 3 - (count % 3);
     const progressText = count % 3 === 0 && count > 0
       ? `🎉 You just hit a milestone! Keep going for more rewards.`
-      : `🔜 <b>${nextReward} more invite${nextReward === 1 ? '' : 's'}</b> to earn your next free key!`;
+      : `🔜 <b>${nextReward} more invite${nextReward === 1 ? '' : 's'}</b> to earn your next 50% OFF coupon!`;
 
     const text =
-      `🎁 <b>Refer & Earn</b>\n\n` +
-      `Invite 3 friends to get a <b>Free 1-Day Premium Key!</b>\n\n` +
+      `🎁 <b>Refer and Save</b>\n\n` +
+      `Invite 3 friends to get a <b>50% OFF Discount Coupon!</b>\n\n` +
       `📊 You currently have <b>${count}</b> successful invite${count === 1 ? '' : 's'}.\n` +
       `${progressText}\n\n` +
       `👇 <b>Your unique referral link:</b>\n<code>${referralLink}</code>\n\n` +
-      `Share this link and earn a free key for every 3 people who join through you!`;
+      `Share this link and earn a 50% discount coupon for every 3 people who join through you!`;
 
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.url('📤 Share Link', `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('Join Freeflow and get a free trial key!')}`)],
