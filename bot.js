@@ -131,11 +131,47 @@ app.use((req, res, next) => {
       req.body = JSON.parse(req.body);
     } catch (err) {
       try {
-        // Sanitize literal newlines and control characters that break JSON.parse
-        const sanitized = req.body
-          .replace(/\n/g, '\\n')
-          .replace(/\r/g, '\\r')
-          .replace(/\t/g, '\\t');
+        // MacroDroid often sends unescaped newlines inside the sms_text string.
+        // We use a state machine to escape newlines ONLY inside string literals.
+        let sanitized = "";
+        let inString = false;
+        let escapeNext = false;
+
+        for (let i = 0; i < req.body.length; i++) {
+          const char = req.body[i];
+          
+          if (escapeNext) {
+            sanitized += char;
+            escapeNext = false;
+            continue;
+          }
+
+          if (char === '\\') {
+            escapeNext = true;
+            sanitized += char;
+            continue;
+          }
+
+          if (char === '"') {
+            inString = !inString;
+            sanitized += char;
+            continue;
+          }
+
+          if (char === '\n' || char === '\r' || char === '\t') {
+            if (inString) {
+              if (char === '\n') sanitized += '\\n';
+              else if (char === '\r') sanitized += '\\r';
+              else if (char === '\t') sanitized += '\\t';
+            } else {
+              // Replace structural control characters with space
+              sanitized += ' ';
+            }
+          } else {
+            sanitized += char;
+          }
+        }
+        
         req.body = JSON.parse(sanitized);
       } catch (err2) {
         console.error('Failed to parse sanitized JSON:', err2.message);
