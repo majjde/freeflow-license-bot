@@ -41,12 +41,16 @@ function mainMenuKeyboard() {
   if (db.getSetting('menu_referral', '1') === '1') row2.push(Markup.button.callback('🎁 Refer and save', 'menu:referral'));
   if (row2.length > 0) buttons.push(row2);
 
-  // R3: How to use | Raise a ticket | Write a Review
+  // R3: How to use | Write a Review
   const row3 = [];
   if (db.getSetting('menu_usage', '1') === '1') row3.push(Markup.button.callback('📖 How to use', 'menu:usage'));
-  if (db.getSetting('menu_ticket', '1') === '1') row3.push(Markup.button.callback('🎫 Raise a ticket', 'menu:ticket'));
   if (db.getSetting('menu_review', '1') === '1') row3.push(Markup.button.callback('⭐ Write a Review', 'menu:review'));
   if (row3.length > 0) buttons.push(row3);
+
+  // R4: Raise a ticket
+  const row4 = [];
+  if (db.getSetting('menu_ticket', '1') === '1') row4.push(Markup.button.callback('🎫 Raise a ticket', 'menu:ticket'));
+  if (row4.length > 0) buttons.push(row4);
 
   // Hidden buttons (append as new rows if enabled)
   if (db.getSetting('menu_free_key', '1') === '1') buttons.push([Markup.button.callback('🎁 Get free key', 'menu:free_key')]);

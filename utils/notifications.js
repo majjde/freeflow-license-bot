@@ -18,7 +18,8 @@ async function notifyAdmin(bot, message, extra = {}) {
 
 function formatUser(user) {
   const username = user.username ? `@${user.username}` : 'N/A';
-  return `<b>User:</b> ${username}\n<b>ID:</b> <code>${user.id}</code>`;
+  const name = (user.first_name || '') + (user.last_name ? ` ${user.last_name}` : '');
+  return `<b>User:</b> ${username}\n<b>ID:</b> <code>${user.id}</code>\n<b>Contact:</b> <a href="tg://user?id=${user.id}">${name || 'Click to message'}</a>`;
 }
 
 async function notifyPaymentAttempt(bot, user, category) {
