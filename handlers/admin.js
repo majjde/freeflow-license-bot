@@ -367,9 +367,11 @@ function registerAdminHandlers(bot) {
     await ctx.answerCbQuery();
     const categoryId = Number(ctx.match[1]);
     setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_AMOUNT, categoryId, editing: true });
-    await ctx.editMessageText('Enter new amount in INR:', Markup.inlineKeyboard([
-      [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
-    ]));
+    try {
+      await ctx.editMessageText('Enter new amount in INR:', Markup.inlineKeyboard([
+        [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
+      ]));
+    } catch (e) {}
   });
 
   bot.action(/^admin_set_upi:(\d+)$/, async (ctx) => {
@@ -377,9 +379,11 @@ function registerAdminHandlers(bot) {
     await ctx.answerCbQuery();
     const categoryId = Number(ctx.match[1]);
     setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_UPI, categoryId, editing: true });
-    await ctx.editMessageText('Enter UPI ID (e.g. name@upi):', Markup.inlineKeyboard([
-      [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
-    ]));
+    try {
+      await ctx.editMessageText('Enter UPI ID (e.g. name@upi):', Markup.inlineKeyboard([
+        [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
+      ]));
+    } catch (e) {}
   });
 
   bot.action(/^admin_set_message:(\d+)$/, async (ctx) => {
@@ -387,9 +391,11 @@ function registerAdminHandlers(bot) {
     await ctx.answerCbQuery();
     const categoryId = Number(ctx.match[1]);
     setSession(ctx.from.id, { state: ADMIN_STATES.MANAGE_MESSAGE, categoryId, editing: true });
-    await ctx.editMessageText('Enter custom message for buyers:', Markup.inlineKeyboard([
-      [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
-    ]));
+    try {
+      await ctx.editMessageText('Enter custom message for buyers:', Markup.inlineKeyboard([
+        [Markup.button.callback('« Cancel', `admin_manage_cat:${categoryId}`)],
+      ]));
+    } catch (e) {}
   });
 
   // ─── Bot Settings & CMS ──────────────────────────────────────────────────
