@@ -875,7 +875,7 @@ function registerUserHandlers(bot) {
     const checkoutKeyboard = Markup.inlineKeyboard([
       [Markup.button.callback('📥 Download QR Code', 'download_qr')],
       [Markup.button.callback('🎟️ Apply Coupon', `apply_coupon:${categoryId}`)],
-      [Markup.button.callback('« Cancel', 'menu:main')],
+      [Markup.button.callback('❌ Cancel Payment', 'cancel_payment')],
     ]);
 
     if (!config.UPI_ID) {
@@ -954,7 +954,7 @@ function registerUserHandlers(bot) {
 
     await ctx.reply(
       '🎟️ <b>Apply Coupon</b>\n\nPlease enter your coupon code:',
-      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]) }
+      { parse_mode: 'HTML', ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel Payment', 'cancel_payment')]]) }
     );
   });
 
@@ -1037,13 +1037,22 @@ function registerUserHandlers(bot) {
       const coupon = db.getCoupon(code);
 
       if (!coupon) {
-        return ctx.reply('❌ Invalid coupon code. Please try again or tap Cancel.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+        return ctx.reply('❌ Invalid coupon code. Please send a valid code.', Markup.inlineKeyboard([
+          [Markup.button.callback('« Back to QR', 'back_to_qr')],
+          [Markup.button.callback('❌ Cancel Payment', 'cancel_payment')]
+        ]));
       }
       if (coupon.is_used === 1) {
-        return ctx.reply('❌ This coupon has already been used.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+        return ctx.reply('❌ This coupon has already been used.', Markup.inlineKeyboard([
+          [Markup.button.callback('« Back to QR', 'back_to_qr')],
+          [Markup.button.callback('❌ Cancel Payment', 'cancel_payment')]
+        ]));
       }
       if (coupon.bound_to && coupon.bound_to !== ctx.from.id) {
-        return ctx.reply('❌ This coupon is bound to another user and cannot be used by you.', Markup.inlineKeyboard([[Markup.button.callback('« Cancel', 'menu:main')]]));
+        return ctx.reply('❌ This coupon is bound to another user.', Markup.inlineKeyboard([
+          [Markup.button.callback('« Back to QR', 'back_to_qr')],
+          [Markup.button.callback('❌ Cancel Payment', 'cancel_payment')]
+        ]));
       }
 
       const categoryId = session.categoryId;
@@ -1069,7 +1078,7 @@ function registerUserHandlers(bot) {
 
       const checkoutKeyboard = Markup.inlineKeyboard([
         [Markup.button.callback('📥 Download QR Code', 'download_qr')],
-        [Markup.button.callback('« Cancel', 'menu:main')],
+        [Markup.button.callback('❌ Cancel Payment', 'cancel_payment')],
       ]);
 
       try {
@@ -1084,6 +1093,22 @@ function registerUserHandlers(bot) {
       }
       return;
     }
+  });
+
+  bot.action('cancel_payment', async (ctx) => {
+    await ctx.answerCbQuery();
+    safeClearSession(ctx.from.id);
+    await ctx.reply('❌ Payment session cancelled. Please start a new session with /start.');
+  });
+
+  bot.action('back_to_qr', async (ctx) => {
+    await ctx.answerCbQuery();
+    const session = getSession(ctx.from.id);
+    if (!session || !session.expectedAmount) {
+      return ctx.reply('Your session expired. Please type /start.');
+    }
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_UTR });
+    await ctx.reply('✅ Coupon application cancelled.\n\nPlease pay the exact amount using the QR code or UPI ID provided above. Your key will be auto-delivered in seconds!');
   });
 
   bot.action('download_qr', async (ctx) => {
@@ -1106,19 +1131,39 @@ function registerUserHandlers(bot) {
     }
   });
 
+  bot.action('cancel_payment', async (ctx) => {
+    await ctx.answerCbQuery();
+    safeClearSession(ctx.from.id);
+    await ctx.reply('❌ Payment session cancelled. Please start a new session with /start.', mainMenuKeyboard());
+  });
+
+  bot.action('back_to_qr', async (ctx) => {
+    await ctx.answerCbQuery();
+    const session = getSession(ctx.from.id);
+    if (!session || !session.expectedAmount) {
+      return ctx.reply('Your session expired. Please type /start.', mainMenuKeyboard());
+    }
+    setSession(ctx.from.id, { state: USER_STATES.AWAITING_UTR });
+    await ctx.reply('✅ Coupon application cancelled.\n\nPlease pay the exact amount using the QR code or UPI ID provided above. Your key will be auto-delivered in seconds!');
+  });
+
   bot.command('cancel', async (ctx) => {
     if (ctx.chat?.type !== 'private') return;
     safeClearSession(ctx.from.id);
     await ctx.reply('Cancelled.', mainMenuKeyboard());
   });
 
-  // Global fallback for unrecognized text from non-admin users not in AWAITING_UTR state
+  // Global fallback for unrecognized text from non-admin users
   bot.on('text', async (ctx, next) => {
     if (ctx.chat?.type !== 'private') return;
     if (isAdmin(ctx)) return next();
 
     const session = getSession(ctx.from.id);
-    if (session.state === USER_STATES.AWAITING_UTR) return next();
+    if (session.state === USER_STATES.AWAITING_UTR) {
+      return ctx.reply(
+        "Please pay the designated amount using the QR code or UPI ID above. Your key will be automatically delivered in seconds!\n\nIf you want to cancel, tap 'Cancel Payment' on the QR code message."
+      );
+    }
 
     await ctx.reply(
       "I didn't quite catch that! 🤖\n\nPlease type /start to view the main menu or begin a new purchase."
