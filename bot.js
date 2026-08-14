@@ -120,7 +120,30 @@ bot.launch().then(() => {
 
 // Express Webhook Server for MacroDroid / Bank SMS
 const app = express();
-app.use(bodyParser.json());
+
+// Custom parser to handle MacroDroid's unescaped control characters (newlines) in JSON
+app.use(express.text({ type: ['application/json', 'text/plain'] }));
+app.use(express.urlencoded({ extended: true }));
+
+app.use((req, res, next) => {
+  if (typeof req.body === 'string') {
+    try {
+      req.body = JSON.parse(req.body);
+    } catch (err) {
+      try {
+        // Sanitize literal newlines and control characters that break JSON.parse
+        const sanitized = req.body
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+        req.body = JSON.parse(sanitized);
+      } catch (err2) {
+        console.error('Failed to parse sanitized JSON:', err2.message);
+      }
+    }
+  }
+  next();
+});
 
 app.post('/macrodroid-webhook', async (req, res) => {
   try {
